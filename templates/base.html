@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Speaker-adaptive speech synthesis demo — voice enrollment, DSP analysis and XTTS-v2 TTS generation.">
+  <title>{% block title %}VoiceLab — Speech Synthesis{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+<!-- ── Navigation ───────────────────────────────────────────────── -->
+<nav aria-label="Main navigation">
+  <a class="nav-brand" href="{{ url_for('main.index') }}">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+      <line x1="12" y1="19" x2="12" y2="22"/>
+      <line x1="8" y1="22" x2="16" y2="22"/>
+    </svg>
+    VoiceLab
+  </a>
+
+  <div class="nav-links">
+    <a href="{{ url_for('main.index') }}"
+       class="{% if request.endpoint == 'main.index' %}nav-active{% endif %}">
+      Home
+    </a>
+    <a href="{{ url_for('main.profiles') }}"
+       class="{% if request.endpoint in ('main.profiles',) %}nav-active{% endif %}">
+      Profiles
+    </a>
+
+    {% if current_slug and current_slug in all_profiles|map(attribute='slug') %}
+    <span class="nav-sep" aria-hidden="true"></span>
+    <span class="nav-profile-label">{{ current_slug }}</span>
+    <a href="{{ url_for('main.enroll', slug=current_slug) }}"
+       class="{% if request.endpoint == 'main.enroll' %}nav-active{% endif %}">
+      Enrollment
+    </a>
+    <a href="{{ url_for('main.analysis', slug=current_slug) }}"
+       class="{% if request.endpoint == 'main.analysis' %}nav-active{% endif %}">
+      DSP Analysis
+    </a>
+    <a href="{{ url_for('main.synthesize', slug=current_slug) }}"
+       class="{% if request.endpoint == 'main.synthesize' %}nav-active{% endif %}">
+      Synthesize
+    </a>
+    <a href="{{ url_for('main.results', slug=current_slug) }}"
+       class="{% if request.endpoint == 'main.results' %}nav-active{% endif %}">
+      Results
+    </a>
+    {% endif %}
+
+    <span class="nav-sep" aria-hidden="true"></span>
+    <a href="{{ url_for('main.experiments') }}"
+       class="{% if request.endpoint == 'main.experiments' %}nav-active{% endif %}">
+      Experiments
+    </a>
+  </div>
+</nav>
+
+<!-- ── Page Content ──────────────────────────────────────────────── -->
+<main id="main-content">
+  {% for m in get_flashed_messages() %}
+  <div class="flash" role="alert">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="flex-shrink:0;margin-top:.1rem">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    {{ m }}
+  </div>
+  {% endfor %}
+
+  {% block body %}{% endblock %}
+</main>
+
+<!-- ── Footer ────────────────────────────────────────────────────── -->
+<footer>
+  <p>VoiceLab &mdash; Speaker-adaptive speech synthesis demo &middot; XTTS-v2 + ECAPA encoder &middot; Clone only voices you have permission to use.</p>
+</footer>
+
+</body>
+</html>

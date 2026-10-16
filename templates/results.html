@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — Results · {{ p.name }}{% endblock %}
+
+{% block body %}
+
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <nav class="page-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('main.profiles') }}">Profiles</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <a href="{{ url_for('main.enroll', slug=p.slug) }}">{{ p.name }}</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>Results</span>
+  </nav>
+  <h1>
+    Synthesis Results
+    <span class="page-subtitle">Profile: <strong>{{ p.name }}</strong></span>
+  </h1>
+</div>
+
+{% if not run %}
+<!-- ── No results yet ──────────────────────────────────────────── -->
+<div class="card">
+  <div class="empty-state">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+    </svg>
+    <h3>No generated speech yet</h3>
+    <p>Use the synthesis page to generate speech in this profile's voice.</p>
+    <a class="btn" href="{{ url_for('main.synthesize', slug=p.slug) }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg>
+      Synthesize speech
+    </a>
+  </div>
+</div>
+
+{% else %}
+{% set f = url_for('main.files', slug=p.slug, name='outputs/' ~ run.run_id ~ '/') %}
+
+<!-- ── Run selector ────────────────────────────────────────────── -->
+{% if runs|length > 1 %}
+<div class="card" style="padding:.75rem 1.25rem">
+  <div class="row" style="align-items:center;gap:.5rem;font-size:.875rem">
+    <span class="mut" style="font-weight:600">Other runs:</span>
+    {% for r in runs %}
+    <a href="{{ url_for('main.results', slug=p.slug, run_id=r) }}"
+       class="btn sec" style="padding:.3rem .7rem;font-size:.8rem">{{ r }}</a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Audio Players ───────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+    </div>
+    <h2>Generated audio — run {{ run.run_id }}</h2>
+  </div>
+
+  <!-- Final (post-processed) -->
+  <div class="audio-section">
+    <div class="audio-label">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      Final output
+    </div>
+    <div class="audio-title">Post-processed audio</div>
+    <audio controls src="{{ f }}final.wav"></audio>
+    <div style="margin-top:.6rem">
+      <a class="btn sec" href="{{ f }}final.wav?download=1">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download WAV
+      </a>
+    </div>
+  </div>
+
+  <!-- Raw TTS output -->
+  <div class="audio-section">
+    <div class="audio-label">Raw TTS output</div>
+    <div class="audio-title">Before DSP post-processing</div>
+    <audio controls src="{{ f }}generated.wav"></audio>
+    <div style="margin-top:.6rem">
+      <a class="btn sec" href="{{ f }}generated.wav?download=1">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download
+      </a>
+    </div>
+  </div>
+
+  <!-- Compressed -->
+  <div class="audio-section">
+    <div class="audio-label">Compression experiment</div>
+    <div class="audio-title">After STFT-threshold compression (keep 30%)</div>
+    <audio controls src="{{ f }}final_compressed.wav"></audio>
+    <div style="margin-top:.6rem">
+      <a class="btn sec" href="{{ f }}compressed_stft_keep30.bin?download=1">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Download .bin
+      </a>
+    </div>
+  </div>
+
+  <!-- Text used -->
+  <div style="margin-top:.85rem;padding:.75rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--r)">
+    <div class="small" style="color:var(--ink-3);font-weight:600;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:.06em;font-size:.72rem">Text used</div>
+    <p class="small" style="color:var(--ink-2);line-height:1.65;margin-bottom:.4rem">{{ run.text.normalized }}</p>
+    {% if run.text.used_gemini %}
+    <span class="ok small">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      Gemini ({{ run.text.gemini_model }}) prepared the text.
+    </span>
+    {% else %}
+    <span class="mut small">{{ run.text.note }}</span>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Metrics Grid ────────────────────────────────────────────── -->
+<div class="grid-2">
+
+  <!-- TTS info -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+      </div>
+      <h2>TTS</h2>
+    </div>
+    <table>
+      <tbody>
+        {% for k,v in run.tts.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    <p class="small mut" style="margin-top:.75rem">{{ run.disclaimer }}</p>
+  </div>
+
+  <!-- Speaker verification -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+      </div>
+      <h2>Speaker verification</h2>
+      <span class="small mut" style="margin-left:.4rem">vs {{ p.slug }}</span>
+    </div>
+    <table>
+      <tbody>
+        {% for k,v in run.verification.items() if k not in ('note',) %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    <p class="small mut" style="margin-top:.75rem">{{ run.verification.note }}</p>
+  </div>
+
+</div>
+
+<div class="grid-2">
+
+  <!-- Post-processing metrics -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <h2>Post-processing metrics</h2>
+    </div>
+    <table>
+      <tbody>
+        {% for k,v in run.postprocess.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- File sizes & timings -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </div>
+      <h2>File sizes &amp; timings</h2>
+    </div>
+    <table>
+      <tbody>
+        {% for k,v in run.file_bytes.items() %}<tr><th>{{ k }}</th><td style="font-family:var(--mono)">{{ v }} bytes</td></tr>{% endfor %}
+        {% for k,v in run.timings.items() %}<tr><th>{{ k }}</th><td style="font-family:var(--mono)">{{ v }}</td></tr>{% endfor %}
+        <tr><th>total_time_s</th><td style="font-family:var(--mono)">{{ run.total_time_s }}</td></tr>
+        <tr><th>LTAS distance to reference (dB)</th><td style="font-family:var(--mono)">{{ run.ltas_distance_to_reference_db }}</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<!-- ── Feature comparison ──────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    </div>
+    <h2>Speech features: reference vs generated</h2>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Feature</th><th>Reference</th><th>Generated</th><th>Diff %</th></tr>
+    </thead>
+    <tbody>
+      {% for c in run.features_compare %}
+      <tr>
+        <td>{{ c.feature }}</td>
+        <td style="font-family:var(--mono)">{{ c.reference }}</td>
+        <td style="font-family:var(--mono)">{{ c.generated }}</td>
+        <td style="font-family:var(--mono)">{{ c.diff_pct }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- ── Compression experiment ──────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+    </div>
+    <h2>Compression experiment — encode &rarr; decode</h2>
+  </div>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Codec</th><th>Keep</th><th>Bytes</th>
+          <th>Ratio (zlib)</th><th>Ratio (fixed-len)</th>
+          <th>kbps</th><th>SNR dB</th><th>LSD dB</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in run.compression %}
+        <tr>
+          <td>{{ r.codec }}</td>
+          <td style="font-family:var(--mono)">{{ r.keep_fraction }}</td>
+          <td style="font-family:var(--mono)">{{ r.compressed_bytes }}</td>
+          <td style="font-family:var(--mono)">{{ r.ratio_zlib }}</td>
+          <td style="font-family:var(--mono)">{{ r.ratio_fixed_length }}</td>
+          <td style="font-family:var(--mono)">{{ r.bitrate_kbps_zlib }}</td>
+          <td style="font-family:var(--mono)">{{ r.snr_db }}</td>
+          <td style="font-family:var(--mono)">{{ r.lsd_db }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="small mut" style="margin-top:.75rem">
+    Ratios are relative to 16-bit PCM of the final signal.
+    STFT-threshold: 512-pt Hann STFT, top-k coefficients, 6-bit log-magnitude + 5-bit phase.
+    DCT-threshold: 512-sample block DCT-II, top-k, 7-bit log-magnitude + sign.
+  </p>
+  <div class="plot-grid" style="margin-top:.85rem">
+    <img class="plot" src="{{ f }}compression_rd.png"    alt="Compression rate-distortion curve" loading="lazy">
+    <img class="plot" src="{{ f }}spectrum_compare.png"  alt="Spectrum comparison" loading="lazy">
+    <img class="plot" src="{{ f }}spectrogram.png"       alt="Spectrogram" loading="lazy">
+  </div>
+</div>
+
+<!-- ── MATLAB post-processing ──────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+    </div>
+    <h2>MATLAB post-processing</h2>
+  </div>
+  {% if run.matlab.used %}
+  <table style="margin-bottom:1rem">
+    <tbody>
+      {% for k,v in run.matlab.results.stats.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <div class="plot-grid">
+    {% for pl in run.matlab.results.plots %}
+    <img class="plot" src="{{ f }}matlab/{{ pl.file }}" alt="{{ pl.file }}" loading="lazy">
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="mut small">{{ run.matlab.note }}</p>
+  {% endif %}
+</div>
+
+{% endif %}
+{% endblock %}

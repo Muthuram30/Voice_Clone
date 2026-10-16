@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — Synthesize · {{ p.name }}{% endblock %}
+
+{% block body %}
+
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <nav class="page-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('main.profiles') }}">Profiles</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <a href="{{ url_for('main.enroll', slug=p.slug) }}">{{ p.name }}</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>Synthesize</span>
+  </nav>
+  <h1>
+    Speech Synthesis
+    <span class="page-subtitle">Generating with profile: <strong>{{ p.name }}</strong></span>
+  </h1>
+</div>
+
+{% if not is_enrolled(p.slug) %}
+<!-- ── Not enrolled ────────────────────────────────────────────── -->
+<div class="card">
+  <div class="empty-state">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>
+    </svg>
+    <h3>Profile not enrolled</h3>
+    <p>This profile needs to be enrolled before speech can be synthesized.</p>
+    <a class="btn" href="{{ url_for('main.enroll', slug=p.slug) }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+      Go to enrollment
+    </a>
+  </div>
+</div>
+
+{% else %}
+
+<!-- ── TTS not installed notice ────────────────────────────────── -->
+{% if not tts.packages_installed %}
+<div class="notice">
+  <strong>TTS packages not installed</strong> — generation will fail with an explanation.
+  Install <code>requirements-tts.txt</code> (see README) to enable synthesis.
+</div>
+{% elif not tts.license_accepted %}
+<div class="notice">
+  <strong>XTTS-v2 licence not accepted yet:</strong> set <code>COQUI_TOS_AGREED=1</code>
+  in <code>.env</code> after reading the Coqui Public Model License.
+</div>
+{% endif %}
+
+<!-- ── Synthesis Form ──────────────────────────────────────────── -->
+<form method="post"
+      onsubmit="var b=this.querySelector('button.go');b.disabled=true;b.textContent='Generating\u2026 (CPU can take several minutes)'">
+
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon" aria-hidden="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <h2>Text to synthesize</h2>
+      <span class="small mut" style="margin-left:auto">up to {{ max_chars }} characters</span>
+    </div>
+
+    <label for="synth-text">
+      <b>Text / subtitle</b> — the voice used is <em>only</em> the enrolled voice of <strong>{{ p.name }}</strong>.
+    </label>
+    <textarea name="text" id="synth-text" maxlength="{{ max_chars }}" required
+              placeholder="Type anything. For example: 'The quick brown fox jumps over the lazy dog.'"></textarea>
+
+    <!-- Language + Gemini row -->
+    <div class="row" style="margin-top:.85rem;gap:1.5rem;flex-wrap:wrap;align-items:flex-start">
+      <div>
+        <label for="lang-select">Language</label>
+        <select name="language" id="lang-select" style="width:auto">
+          {% for l in langs %}
+          <option {{ 'selected' if l == 'en' }}>{{ l }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="padding-top:1.5rem">
+        <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:0;cursor:pointer;font-weight:400">
+          <input type="checkbox" name="use_gemini" id="use-gemini"
+                 {{ 'checked' if gemini }} {{ '' if gemini else 'disabled' }}>
+          Gemini text normalisation
+          {% if not gemini %}
+          <span class="small mut">(no GEMINI_API_KEY — local normaliser is used)</span>
+          {% endif %}
+        </label>
+      </div>
+    </div>
+
+    {% if gemini %}
+    <p class="small mut" style="margin-top:.55rem">
+      Gemini only prepares the text (punctuation, numbers, sentence splitting); it never creates audio.
+      On the free tier Google may use prompts to improve its products — do not send confidential text.
+      If Gemini fails, the original text is used.
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- ── DSP post-processing options ──────────────────────────── -->
+  <div class="card" style="padding:0">
+    <details>
+      <summary>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex-shrink:0" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+        DSP post-processing options
+      </summary>
+      <div class="row" style="gap:1.5rem;padding:.85rem 1rem;flex-wrap:wrap">
+        <label style="margin-bottom:0">
+          High-pass (Hz)
+          <input type="number" name="hp_hz" value="70" min="0" max="400" style="width:90px;margin-top:.3rem">
+        </label>
+        <label style="margin-bottom:0">
+          Low-pass (Hz, 0 = off)
+          <input type="number" name="lp_hz" value="0" min="0" max="12000" style="width:110px;margin-top:.3rem">
+        </label>
+        <label style="margin-bottom:0">
+          Target RMS (dBFS)
+          <input type="number" name="target_rms" value="-20" min="-40" max="-6" style="width:90px;margin-top:.3rem">
+        </label>
+      </div>
+    </details>
+  </div>
+
+  <div style="margin-top:1rem">
+    <button class="go" type="submit">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      Generate Speech
+    </button>
+  </div>
+
+</form>
+{% endif %}
+{% endblock %}

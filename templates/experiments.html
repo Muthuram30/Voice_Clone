@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — ML Experiments{% endblock %}
+
+{% block body %}
+
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <h1>
+    ML Experiments
+    <span class="page-subtitle">Speaker classifier, model quantisation, and audio compression sweeps.</span>
+  </h1>
+</div>
+
+<!-- ── Experiment 1: Speaker Classifier ─────────────────────────── -->
+<div class="card exp-section">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+    </div>
+    <h2 style="margin:0">
+      1. Speaker Classifier
+      <span class="exp-badge">StandardScaler &rarr; PCA &rarr; linear SVM</span>
+    </h2>
+  </div>
+
+  <form method="post" action="{{ url_for('main.exp_classifier') }}" style="margin-bottom:1rem">
+    <button type="submit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Train / evaluate on enrolled profiles
+    </button>
+  </form>
+
+  {% for enc, r in clf.items() %}
+  <h3 style="margin-top:1rem">Encoder: {{ enc }}</h3>
+  <table style="margin-bottom:.85rem">
+    <tbody>
+      <tr>
+        <th>Profiles</th><td>{{ r.labels|join(', ') }}</td>
+        <th>PCA components</th><td style="font-family:var(--mono)">{{ r.pca_components }} ({{ (r.explained_variance_ratio_sum*100)|round(1) }}% var.)</td>
+      </tr>
+      <tr>
+        <th>Train / test chunks</th><td style="font-family:var(--mono)">{{ r.n_train }} / {{ r.n_test }}</td>
+        <th>Hold-out accuracy</th><td style="font-family:var(--mono)">{{ r.holdout_accuracy }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  {% if r.confusion %}
+  <h4 style="margin-top:.85rem;margin-bottom:.5rem">Confusion matrix</h4>
+  <div style="overflow-x:auto">
+    <table style="width:auto;min-width:220px">
+      <thead>
+        <tr>
+          <th>true \ predicted</th>
+          {% for l in r.labels %}<th style="text-align:center">{{ l }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in r.labels %}
+        <tr>
+          <th>{{ a }}</th>
+          {% for b in r.labels %}
+          <td style="text-align:center;font-family:var(--mono)">{{ r.confusion[a][b] }}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <p class="small warn" style="margin-top:.75rem">{{ r.caveat }}</p>
+  <img class="plot" style="max-width:480px;margin-top:.5rem"
+       src="{{ url_for('main.exp_files', name='pca_' ~ enc ~ '.png') }}"
+       alt="PCA scatter for {{ enc }}" loading="lazy">
+
+  {% else %}
+  <p class="mut" style="font-size:.9rem">Needs at least two enrolled profiles that used the same encoder.</p>
+  {% endfor %}
+</div>
+
+<!-- ── Experiment 2: Quantisation ────────────────────────────────── -->
+<div class="card exp-section">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="14" x2="22" y2="14"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="14" x2="4" y2="14"/></svg>
+    </div>
+    <h2 style="margin:0">
+      2. Model Quantisation
+      <span class="exp-badge">int8</span>
+    </h2>
+  </div>
+
+  <form method="post" action="{{ url_for('main.exp_quantize') }}" class="row" style="margin-bottom:1rem">
+    <button name="which" value="classifier" type="submit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Quantise classifier (int8)
+    </button>
+    <button name="which" value="encoder" class="sec" type="submit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Try dynamic int8 on ECAPA encoder
+    </button>
+  </form>
+
+  {% if quant %}
+  <h3>Classifier (int8)</h3>
+  <p class="small" style="margin-bottom:.6rem;color:var(--ink-2)">
+    {{ quant.what_is_quantised }}<br>
+    <strong>Not quantised:</strong> {{ quant.not_quantised }}
+  </p>
+  <table style="margin-bottom:.75rem">
+    <tbody>
+      {% for k,v in quant.items() if k not in ('what_is_quantised','not_quantised') %}
+      <tr><th>{{ k }}</th><td style="font-family:var(--mono)">{{ v }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if enc_quant %}
+  <h3>ECAPA encoder (dynamic int8)</h3>
+  <table style="margin-bottom:.75rem">
+    <tbody>
+      {% for k,v in enc_quant.items() %}<tr><th>{{ k }}</th><td style="font-family:var(--mono)">{{ v }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <p class="small mut">XTTS-v2 is not quantised (see <code>services/quant_service.py</code> for why).</p>
+</div>
+
+<!-- ── Experiment 3: Compression ─────────────────────────────────── -->
+<div class="card exp-section">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
+    </div>
+    <h2 style="margin:0">
+      3. Audio Compression Sweep
+      <span class="exp-badge">STFT / DCT</span>
+    </h2>
+  </div>
+
+  <form method="post" action="{{ url_for('main.exp_compression') }}" class="row" style="margin-bottom:1rem">
+    <div>
+      <label for="comp-profile-select" class="small mut" style="margin-bottom:.3rem;display:block">Select enrolled profile</label>
+      <select name="slug" id="comp-profile-select" style="width:auto">
+        {% for p in all_profiles if is_enrolled(p.slug) %}
+        <option value="{{ p.slug }}">{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="padding-top:1.4rem">
+      <button type="submit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Run STFT / DCT sweep
+      </button>
+    </div>
+  </form>
+
+  {% if comp %}
+  <p class="small" style="margin-bottom:.85rem;color:var(--ink-2)">
+    Profile: <strong>{{ comp.profile }}</strong> &middot;
+    Duration: <strong>{{ comp.seconds }} s</strong> &middot;
+    {{ comp.note }}
+  </p>
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Codec</th><th>Keep</th><th>Ratio (zlib)</th><th>kbps</th><th>SNR dB</th><th>LSD dB</th></tr>
+      </thead>
+      <tbody>
+        {% for r in comp.rows %}
+        <tr>
+          <td>{{ r.codec }}</td>
+          <td style="font-family:var(--mono)">{{ r.keep_fraction }}</td>
+          <td style="font-family:var(--mono)">{{ r.ratio_zlib }}</td>
+          <td style="font-family:var(--mono)">{{ r.bitrate_kbps_zlib }}</td>
+          <td style="font-family:var(--mono)">{{ r.snr_db }}</td>
+          <td style="font-family:var(--mono)">{{ r.lsd_db }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div style="margin-top:.85rem">
+    <img class="plot" style="max-width:520px"
+         src="{{ url_for('main.exp_files', name='compression_rd.png') }}"
+         alt="Compression rate-distortion curve" loading="lazy">
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}

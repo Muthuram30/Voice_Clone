@@ -1,0 +1,34 @@
+.env
+
+# Virtual environments
+venv/
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Test and tool caches
+.pytest_cache/
+
+# Personal recordings and generated audio
+*.wav
+*.mp3
+*.flac
+*.ogg
+
+# Generated profile data and synthesis outputs
+profiles/*/
+!profiles/.gitkeep
+
+# Downloaded ML model weights and caches
+models/*
+!models/.gitkeep
+!models/README.md
+
+# Generated experiment and analysis files
+data/
+analysis_output/
+
+# Local archives
+*.zip

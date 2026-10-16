@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — Home{% endblock %}
+
+{% block body %}
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <h1>
+    Speaker-Adaptive Speech Synthesis
+    <span class="page-subtitle">Enroll a voice profile, run DSP analysis, and generate natural speech with XTTS-v2.</span>
+  </h1>
+</div>
+
+<div class="grid-2">
+
+  <!-- ── Workflow Card ─────────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <h2>How it works</h2>
+    </div>
+    <ol class="workflow-steps">
+      <li>Select or create a voice profile (User 1, User 2, or your own)</li>
+      <li>Record or upload ~2 minutes of the predefined enrollment script</li>
+      <li>Process &amp; Enroll Voice — DSP analysis, speaker embedding, TTS reference</li>
+      <li>Enter any text you want to synthesize</li>
+      <li>Generate speech in that profile's voice, then play or download</li>
+    </ol>
+    <p class="small mut" style="margin-top:.85rem">
+      The 2-minute recording is a <b>reference sample</b>. No TTS network is trained: a pretrained model
+      (XTTS-v2) is conditioned on the reference; a pretrained ECAPA encoder (or an MFCC baseline)
+      provides the speaker embedding.
+    </p>
+    <div style="margin-top:1rem">
+      <a class="btn" href="{{ url_for('main.profiles') }}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Choose a profile
+      </a>
+    </div>
+  </div>
+
+  <!-- ── System Status Card ───────────────────────────────────── -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      </div>
+      <h2>System status</h2>
+    </div>
+
+    <div class="status-item">
+      <span class="status-dot {% if status.tts.packages_installed and status.tts.license_accepted %}ok{% elif status.tts.packages_installed %}warn{% else %}err{% endif %}"></span>
+      <div>
+        <div class="status-label">TTS — XTTS-v2</div>
+        <div class="status-value">
+          {% if status.tts.packages_installed %}
+            <span class="ok">Packages installed</span>
+            {% if not status.tts.license_accepted %}
+              &nbsp;<span class="warn">— licence not accepted (set <code>COQUI_TOS_AGREED=1</code>)</span>
+            {% endif %}
+          {% else %}
+            <span class="err">Not installed</span> — enrollment, DSP and experiments still work; synthesis needs <code>requirements-tts.txt</code>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="status-item">
+      <span class="status-dot {% if status.encoder.configured %}ok{% else %}warn{% endif %}"></span>
+      <div>
+        <div class="status-label">Speaker Encoder</div>
+        <div class="status-value">
+          Configured: <b>{{ status.encoder.configured }}</b> &middot;
+          ECAPA packages {{ 'installed' if status.encoder.ecapa_packages_installed else 'missing — MFCC baseline will be used' }}
+        </div>
+      </div>
+    </div>
+
+    <div class="status-item">
+      <span class="status-dot {% if status.matlab.any %}ok{% else %}warn{% endif %}"></span>
+      <div>
+        <div class="status-label">MATLAB</div>
+        <div class="status-value">
+          {% if status.matlab.any %}
+            Engine API: {{ status.matlab.engine_api }}, CLI: {{ status.matlab.cli }}
+          {% else %}
+            Not found — Python DSP is used
+          {% endif %}
+          &nbsp;<span class="mut">(DSP_BACKEND={{ status.dsp_backend }})</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-item">
+      <span class="status-dot {% if status.gemini %}ok{% else %}warn{% endif %}"></span>
+      <div>
+        <div class="status-label">Gemini Text Prep</div>
+        <div class="status-value">
+          {% if status.gemini %}
+            <span class="ok">API key set</span> (models: {{ status.gemini_models | join(', ') }})
+          {% else %}
+            No key — local normaliser is used
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Feature Cards ─────────────────────────────────────────────── -->
+<div class="grid" style="margin-top:1.25rem">
+
+  <div class="feature-card">
+    <div class="feature-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <h3>Voice Profiles</h3>
+    <p>Isolated per-user folders for recordings, embeddings, and synthesis outputs. Nothing is shared across profiles.</p>
+    <a class="btn sec" href="{{ url_for('main.profiles') }}">Manage profiles</a>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </svg>
+    </div>
+    <h3>Voice Enrollment</h3>
+    <p>Record or upload ~2 min of speech. Automatic DSP preprocessing, VAD, speaker embedding extraction, and TTS reference conditioning.</p>
+    {% if all_profiles %}
+    <a class="btn sec" href="{{ url_for('main.enroll', slug=all_profiles[0].slug) }}">Go to enrollment</a>
+    {% endif %}
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+    </div>
+    <h3>DSP Analysis</h3>
+    <p>Waveform, spectrogram, pitch (F0), MFCCs, VAD, V/UV classification, LPC formants, and optional MATLAB comparison.</p>
+    {% if all_profiles %}
+    <a class="btn sec" href="{{ url_for('main.analysis', slug=all_profiles[0].slug) }}">View analysis</a>
+    {% endif %}
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+      </svg>
+    </div>
+    <h3>Speech Synthesis</h3>
+    <p>Zero-shot voice cloning with XTTS-v2 conditioned on the enrolled reference. Optional Gemini text normalisation and DSP post-processing.</p>
+    {% if all_profiles %}
+    <a class="btn sec" href="{{ url_for('main.synthesize', slug=all_profiles[0].slug) }}">Synthesize speech</a>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

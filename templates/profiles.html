@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — Voice Profiles{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <h1>
+    Voice Profiles
+    <span class="page-subtitle">Each profile is completely isolated — its own recording, embedding and outputs.</span>
+  </h1>
+</div>
+
+{% if all_profiles %}
+<div class="grid">
+
+  {% for p in all_profiles %}
+  {% set st = p.enrollment.status %}
+  <div class="profile-card">
+
+    <!-- Avatar + Name -->
+    <div style="display:flex;align-items:center;gap:.85rem">
+      <div class="profile-avatar" aria-hidden="true">{{ p.name[0]|upper }}</div>
+      <div>
+        <div class="profile-name">{{ p.name }}</div>
+        <div style="font-size:.78rem;color:var(--ink-3);font-family:var(--mono)">{{ p.slug }}</div>
+      </div>
+    </div>
+
+    <!-- Enrollment Status -->
+    <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap">
+      <span class="badge {{ 'b-ok' if st=='enrolled' else ('b-err' if st=='failed' else 'b-warn') }}">
+        {% if st == 'enrolled' %}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+        {% elif st == 'failed' %}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        {% else %}
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        {% endif %}
+        {{ st | replace('_',' ') }}
+      </span>
+      {% if p.enrollment.encoder %}
+      <span class="small mut">{{ p.enrollment.encoder.name }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="profile-actions">
+      <a class="btn" href="{{ url_for('main.enroll', slug=p.slug) }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+        Enrollment
+      </a>
+      {% if st == 'enrolled' %}
+      <a class="btn sec" href="{{ url_for('main.synthesize', slug=p.slug) }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        Synthesize
+      </a>
+      <a class="btn sec" href="{{ url_for('main.analysis', slug=p.slug) }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Analysis
+      </a>
+      <a class="btn sec" href="{{ url_for('main.results', slug=p.slug) }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Results
+      </a>
+      {% endif %}
+    </div>
+
+    <!-- Delete -->
+    <form method="post" action="{{ url_for('main.profile_delete', slug=p.slug) }}"
+          onsubmit="return confirm('Delete profile \'{{ p.name }}\' and ALL its data?')"
+          style="margin-top:.25rem;padding-top:.75rem;border-top:1px solid var(--border)">
+      <button class="danger small" type="submit">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        Delete profile
+      </button>
+    </form>
+
+  </div>
+  {% endfor %}
+
+  <!-- New Profile Card -->
+  <div class="profile-card" style="border-style:dashed;border-color:var(--border-2)">
+    <div style="display:flex;align-items:center;gap:.85rem">
+      <div class="profile-avatar" style="background:var(--surface);border:1.5px dashed var(--border-2);color:var(--ink-3)" aria-hidden="true">+</div>
+      <div>
+        <div class="profile-name" style="color:var(--ink-2)">New Profile</div>
+        <div style="font-size:.78rem;color:var(--ink-3)">Create a new voice profile</div>
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('main.profiles') }}" style="margin-top:.25rem">
+      <label for="new-profile-name" class="small mut" style="margin-bottom:.4rem;display:block">Profile name</label>
+      <input type="text" id="new-profile-name" name="name" maxlength="40" placeholder="e.g. Priya" required
+             style="margin-bottom:.65rem">
+      <button type="submit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Create profile
+      </button>
+    </form>
+  </div>
+
+</div>
+
+{% else %}
+<!-- Empty state -->
+<div class="card">
+  <div class="empty-state">
+    <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    <h3>No profiles yet</h3>
+    <p>Create your first voice profile to get started with enrollment and synthesis.</p>
+    <form method="post" action="{{ url_for('main.profiles') }}" style="display:flex;gap:.65rem;justify-content:center;flex-wrap:wrap">
+      <input type="text" name="name" maxlength="40" placeholder="Profile name, e.g. Priya" required style="max-width:260px">
+      <button type="submit">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Create profile
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

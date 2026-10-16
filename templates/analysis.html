@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — DSP Analysis · {{ p.name }}{% endblock %}
+
+{% block body %}
+
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <nav class="page-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('main.profiles') }}">Profiles</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <a href="{{ url_for('main.enroll', slug=p.slug) }}">{{ p.name }}</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>DSP Analysis</span>
+  </nav>
+  <h1>
+    DSP Analysis
+    <span class="page-subtitle">Profile: <strong>{{ p.name }}</strong></span>
+  </h1>
+</div>
+
+{% if not has_ref %}
+<!-- ── No recording uploaded yet ──────────────────────────────── -->
+<div class="card">
+  <div class="empty-state">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+    </svg>
+    <h3>No recording yet</h3>
+    <p>Upload a recording on the enrollment page first before running DSP analysis.</p>
+    <a class="btn" href="{{ url_for('main.enroll', slug=p.slug) }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+      Go to enrollment
+    </a>
+  </div>
+</div>
+
+{% else %}
+
+<!-- ── Run Controls ────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    </div>
+    <h2>Run analysis</h2>
+  </div>
+
+  <form method="post" class="row" style="align-items:flex-end;gap:1rem">
+    <div>
+      <label for="backend-select">Run with</label>
+      <select name="backend" id="backend-select" style="width:auto">
+        <option value="python">Python (always available)</option>
+        <option value="matlab" {{ '' if matlab.any else 'disabled' }}>MATLAB only</option>
+        <option value="both"   {{ '' if matlab.any else 'disabled' }}>Both (compare)</option>
+      </select>
+    </div>
+    <button type="submit" onclick="this.disabled=true;this.form.submit()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Run analysis
+    </button>
+  </form>
+
+  <p class="small mut" style="margin-top:.85rem">
+    <strong>MATLAB:</strong>
+    {% if matlab.any %}
+      Engine API {{ matlab.engine_api }}, CLI {{ matlab.cli }}.
+    {% else %}
+      Not found; only the Python implementation can run.
+    {% endif %}
+    Both implementations perform: DC removal, high-pass + spectral-subtraction noise reduction,
+    normalisation, pre-emphasis, VAD, voiced/unvoiced/silence, FFT, STFT, MFCC, autocorrelation F0,
+    LPC formants, feature vector. ML stages use Python-processed audio.
+  </p>
+</div>
+
+{% if not res %}
+<!-- ── No analysis yet ────────────────────────────────────────── -->
+<div class="card">
+  <div class="empty-state" style="padding:2rem 1rem">
+    <h3 style="color:var(--ink-3)">No analysis results yet</h3>
+    <p>Run the analysis above. Enrollment also creates the Python analysis automatically.</p>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Analysis Results ────────────────────────────────────────── -->
+{% for b, r in res.items() %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        {% if b == 'matlab' %}
+        <rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+        {% else %}
+        <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+        {% endif %}
+      </svg>
+    </div>
+    <h2>{{ 'MATLAB' if b == 'matlab' else 'Python' }} results</h2>
+    {% if r.status == 'ok' %}
+    <span class="badge b-ok" style="margin-left:auto">OK</span>
+    {% else %}
+    <span class="badge b-err" style="margin-left:auto">Error</span>
+    {% endif %}
+  </div>
+
+  {% if r.status != 'ok' %}
+  <p class="err">{{ r.message }}</p>
+  {% else %}
+
+  <!-- Stats table -->
+  <table style="margin-bottom:1.1rem">
+    <tbody>
+      {% for k, v in r.stats.items() %}
+      <tr><th>{{ k }}</th><td style="font-family:var(--mono);font-size:.85rem">{{ v }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Plot grid -->
+  <div class="plot-grid">
+    {% for pl in r.plots %}
+    <div class="plot-item">
+      <b class="small">{{ pl.title }}</b>
+      <img class="plot" src="{{ url_for('main.files', slug=p.slug, name='analysis/' ~ b ~ '/' ~ pl.file) }}"
+           alt="{{ pl.title }}" loading="lazy">
+    </div>
+    {% endfor %}
+  </div>
+
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- ── Python vs MATLAB comparison ────────────────────────────── -->
+{% if res.python and res.matlab and res.matlab.status == 'ok' %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    </div>
+    <h2>Python vs MATLAB — same recording</h2>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Statistic</th><th>Python</th><th>MATLAB</th></tr>
+    </thead>
+    <tbody>
+      {% for k, v in res.python.stats.items() %}
+        {% if k in res.matlab.stats and k not in ('runtime_s',) %}
+        <tr>
+          <td>{{ k }}</td>
+          <td style="font-family:var(--mono);font-size:.85rem">{{ v }}</td>
+          <td style="font-family:var(--mono);font-size:.85rem">{{ res.matlab.stats[k] }}</td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="small mut" style="margin-top:.75rem">
+    Small differences are expected (different MFCC filterbank/VAD smoothing details, pitch interpolation).
+  </p>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

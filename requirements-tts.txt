@@ -1,0 +1,10 @@
+# Speaker-conditioned TTS (XTTS-v2) + pretrained ECAPA speaker encoder.
+# 1) Install PyTorch first for YOUR hardware: https://pytorch.org/get-started/locally/
+#    (CPU:  pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu)
+# 2) Then:  pip install -r requirements-tts.txt
+# Python 3.10-3.12 recommended. `coqui-tts` is the maintained fork that provides the `TTS` module.
+torch>=2.1
+torchaudio>=2.1
+coqui-tts>=0.24
+speechbrain>=1.0
+torchcodec>=0.17

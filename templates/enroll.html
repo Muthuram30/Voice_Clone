@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}VoiceLab — Enrollment · {{ p.name }}{% endblock %}
+
+{% block body %}
+{% set e = p.enrollment %}
+{% set r = p.reference %}
+
+<!-- ── Page Header ──────────────────────────────────────────────── -->
+<div class="page-header">
+  <nav class="page-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('main.profiles') }}">Profiles</a>
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>{{ p.name }}</span>
+  </nav>
+  <h1>
+    Voice Enrollment
+    <span class="page-subtitle">Profile: <strong>{{ p.name }}</strong></span>
+  </h1>
+</div>
+
+<!-- ── Step 1 — Script ───────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+    </div>
+    <h2>Step 1 — Read this script aloud</h2>
+    <span class="badge b-warn" style="margin-left:auto">~{{ cfg.ENROLL_TARGET_S|int }}s</span>
+  </div>
+
+  <div class="script" role="document" aria-label="Enrollment script">{{ script }}</div>
+
+  <p class="small mut" style="margin-top:.85rem">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px;margin-right:.25rem" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    Quiet room, microphone 15–20 cm away, natural pace, pause at full stops.
+    Accepted length: <b>{{ cfg.ENROLL_MIN_S|int }}–{{ cfg.ENROLL_MAX_S|int }} s</b> with at least
+    <b>{{ cfg.ENROLL_MIN_SPEECH_S|int }} s</b> of detected speech.
+    This is a reference sample for a demo, not full training on the speaker.
+  </p>
+</div>
+
+<!-- ── Step 2 — Upload / Record ──────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>
+    </div>
+    <h2>Step 2 — Upload or record</h2>
+  </div>
+
+  <!-- Upload -->
+  <form method="post" action="{{ url_for('main.upload', slug=p.slug) }}" enctype="multipart/form-data" class="upload-form">
+    <input type="file" name="audio" id="audio-file-input" accept=".wav,.flac,.ogg,audio/*" required>
+    <button type="submit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Upload recording
+    </button>
+  </form>
+
+  <div class="sep-text" style="margin:.85rem 0">or</div>
+
+  <!-- Browser record -->
+  <div class="rec-controls">
+    <button type="button" id="recStart" class="sec">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
+      Record in browser
+    </button>
+    <button type="button" id="recStop" class="sec" disabled>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
+      Stop &amp; upload
+    </button>
+    <span id="recInfo" class="mut small" aria-live="polite"></span>
+  </div>
+
+  <p class="small mut" style="margin-top:.6rem">
+    Browser recording requires microphone permission and works on localhost/HTTPS. Audio is converted to 16-bit WAV before upload.
+    Supported formats: WAV, FLAC, OGG.
+  </p>
+</div>
+
+<!-- ── Step 3 — Recording check ─────────────────────────────────── -->
+{% if has_ref and r %}
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    </div>
+    <h2>Step 3 — Recording check</h2>
+  </div>
+
+  <audio controls src="{{ url_for('main.files', slug=p.slug, name='reference.wav') }}" style="margin-bottom:.85rem"></audio>
+
+  <!-- Stats grid -->
+  <div class="ref-stats-grid">
+    <div class="ref-stat">
+      <div class="ref-stat-label">Duration</div>
+      <div class="ref-stat-value">{{ r.duration_s }} s</div>
+    </div>
+    <div class="ref-stat">
+      <div class="ref-stat-label">Sample rate</div>
+      <div class="ref-stat-value">{{ r.samplerate }} Hz</div>
+    </div>
+    <div class="ref-stat">
+      <div class="ref-stat-label">Channels</div>
+      <div class="ref-stat-value">{{ r.channels }}</div>
+    </div>
+    <div class="ref-stat">
+      <div class="ref-stat-label">Speech (VAD)</div>
+      <div class="ref-stat-value">{{ r.validation.speech_seconds }} s</div>
+    </div>
+    <div class="ref-stat">
+      <div class="ref-stat-label">Speech ratio</div>
+      <div class="ref-stat-value">{{ r.validation.speech_ratio }}</div>
+    </div>
+    <div class="ref-stat">
+      <div class="ref-stat-label">Peak</div>
+      <div class="ref-stat-value">{{ r.validation.peak }}</div>
+    </div>
+  </div>
+
+  {% for w in r.validation.warnings %}
+  <p class="warn">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex-shrink:0;margin-top:.1rem"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    Warning: {{ w }}
+  </p>
+  {% endfor %}
+
+  <img class="plot" src="{{ url_for('main.files', slug=p.slug, name='preview.png') }}?t={{ r.uploaded_at }}"
+       alt="Waveform preview" style="margin:.75rem 0">
+
+  <form method="post" action="{{ url_for('main.process', slug=p.slug) }}"
+        onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Processing… (can take a minute)'">
+    <button type="submit">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      Process &amp; Enroll Voice
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<!-- ── Enrollment Status ─────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <div class="card-icon" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+    </div>
+    <h2 style="margin:0">Enrollment status</h2>
+    &nbsp;
+    {% if e.status == 'enrolled' %}
+    <span class="badge b-ok">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+      Success
+    </span>
+    {% elif e.status == 'failed' %}
+    <span class="badge b-err">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      Failed
+    </span>
+    {% else %}
+    <span class="badge b-warn">{{ e.status | replace('_',' ') | upper }}</span>
+    {% endif %}
+  </div>
+
+  {% if e.status == 'failed' %}
+  <p class="err" style="font-size:.875rem">{{ e.error }}</p>
+  {% endif %}
+
+  {% if e.status == 'enrolled' %}
+  <table style="margin-bottom:1rem">
+    <tbody>
+      <tr><th>Speaker encoder</th><td>{{ e.encoder.name }} ({{ e.encoder.dim }}-d){{ ' — pretrained, not trained here' if e.encoder.pretrained else ' — classical baseline' }}</td></tr>
+      {% if e.encoder.note %}
+      <tr><th>Note</th><td class="warn">{{ e.encoder.note }}</td></tr>
+      {% endif %}
+      <tr><th>Clean speech used</th><td>{{ e.clean_speech_seconds }} s &rarr; {{ e.n_chunks }} embedding chunks</td></tr>
+      <tr><th>TTS reference</th><td>{{ e.tts_reference.seconds }} s from {{ e.tts_reference.windows }} windows ({{ e.tts_reference.sample_rate }} Hz)</td></tr>
+      <tr><th>TTS conditioning</th><td>{{ e.tts_conditioning }}</td></tr>
+      <tr><th>Pipeline steps</th><td>{% for k,v in e.steps.items() %}<span style="display:inline-block;margin-right:.5rem">{{ k }}: {{ v }}</span>{% endfor %}</td></tr>
+      <tr><th>Models</th><td class="small" style="font-family:var(--mono)">{{ e.models.speaker_encoder }}<br>{{ e.models.tts }}</td></tr>
+    </tbody>
+  </table>
+
+  <div class="row">
+    <a class="btn" href="{{ url_for('main.synthesize', slug=p.slug) }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+      Enter text &amp; generate speech
+    </a>
+    <a class="btn sec" href="{{ url_for('main.analysis', slug=p.slug) }}">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      View DSP analysis
+    </a>
+  </div>
+  {% endif %}
+</div>
+
+<script src="{{ url_for('static', filename='js/record.js') }}"></script>
+<script>initRecorder("{{ url_for('main.upload', slug=p.slug) }}");</script>
+{% endblock %}
