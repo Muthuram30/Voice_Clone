@@ -66,7 +66,8 @@
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
       Final output
     </div>
-    <div class="audio-title">Post-processed audio</div>
+    <div class="audio-title">Full-quality speech</div>
+    <p class="small mut">Listen here to judge the voice. WAV and FLAC exports use this full-quality signal.</p>
     <audio controls src="{{ f }}final.wav"></audio>
     <div style="margin-top:.6rem">
       <a class="btn sec" href="{{ f }}final.wav?download=1">
@@ -76,6 +77,14 @@
     </div>
   </div>
 
+  <form class="export-controls" onsubmit="event.preventDefault();location.href=this.querySelector('select').value">
+    <label for="export-format">Export speech</label>
+    <div class="row"><select id="export-format" aria-label="Audio export format">
+    {% for fmt in ['wav','flac','mp3','ogg','opus','m4a','aiff','zip'] %}
+      <option value="{{ url_for('main.export_audio', slug=p.slug, run_id=run.run_id, fmt=fmt) }}">{{ 'All audio + report (ZIP)' if fmt == 'zip' else fmt|upper }}</option>
+    {% endfor %}</select><button type="submit">Download</button></div>
+    <p class="small mut">WAV/FLAC preserve quality. MP3, OGG, Opus and M4A are lossy. Export does not improve the model's source sample rate.</p>
+  </form>
   <!-- Raw TTS output -->
   <div class="audio-section">
     <div class="audio-label">Raw TTS output</div>
@@ -90,8 +99,8 @@
   </div>
 
   <!-- Compressed -->
-  <div class="audio-section">
-    <div class="audio-label">Compression experiment</div>
+  <details class="audio-section">
+    <summary>Lossy compression experiment — may sound metallic</summary>
     <div class="audio-title">After STFT-threshold compression (keep 30%)</div>
     <audio controls src="{{ f }}final_compressed.wav"></audio>
     <div style="margin-top:.6rem">
@@ -100,7 +109,7 @@
         Download .bin
       </a>
     </div>
-  </div>
+  </details>
 
   <!-- Text used -->
   <div style="margin-top:.85rem;padding:.75rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--r)">
@@ -116,6 +125,19 @@
     {% endif %}
   </div>
 </div>
+
+{% if run.audio_quality %}
+<div class="card">
+  <h2>Audio checks</h2>
+  <p class="small mut">These checks detect signal problems. Listen for pronunciation, rhythm and a natural voice.</p>
+  <table><tbody>
+    <tr><th>Clipped samples</th><td>{{ (run.audio_quality.clipped_fraction * 100)|round(3) }}%</td></tr>
+    <tr><th>Longest internal pause</th><td>{{ run.audio_quality.longest_internal_pause_s }} s</td></tr>
+    <tr><th>Peak level</th><td>{{ run.audio_quality.peak }}</td></tr>
+  </tbody></table>
+  {% for warning in run.audio_quality.warnings %}<p class="notice">{{ warning }}</p>{% endfor %}
+</div>
+{% endif %}
 
 <!-- ── Metrics Grid ────────────────────────────────────────────── -->
 <div class="grid-2">
@@ -260,30 +282,6 @@
     <img class="plot" src="{{ f }}spectrum_compare.png"  alt="Spectrum comparison" loading="lazy">
     <img class="plot" src="{{ f }}spectrogram.png"       alt="Spectrogram" loading="lazy">
   </div>
-</div>
-
-<!-- ── MATLAB post-processing ──────────────────────────────────── -->
-<div class="card">
-  <div class="card-header">
-    <div class="card-icon" aria-hidden="true">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-    </div>
-    <h2>MATLAB post-processing</h2>
-  </div>
-  {% if run.matlab.used %}
-  <table style="margin-bottom:1rem">
-    <tbody>
-      {% for k,v in run.matlab.results.stats.items() %}<tr><th>{{ k }}</th><td>{{ v }}</td></tr>{% endfor %}
-    </tbody>
-  </table>
-  <div class="plot-grid">
-    {% for pl in run.matlab.results.plots %}
-    <img class="plot" src="{{ f }}matlab/{{ pl.file }}" alt="{{ pl.file }}" loading="lazy">
-    {% endfor %}
-  </div>
-  {% else %}
-  <p class="mut small">{{ run.matlab.note }}</p>
-  {% endif %}
 </div>
 
 {% endif %}

@@ -1,13 +1,14 @@
-import json, re
+import io, json, re, tempfile, zipfile
 from pathlib import Path
 
-from flask import (Blueprint, abort, flash, jsonify, redirect, render_template, request, send_from_directory,
+from flask import (Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, send_from_directory,
                    session, url_for)
 
 import config
-from services import audio_service as A, dsp_service as D, gemini_service as G, matlab_service as M
+from services import audio_service as A, dsp_service as D, gemini_service as G
 from services import profile_service as PS, quant_service as Q, speaker_service as S
 from services import synthesis_service as SY, tts_service as T
+from services import indic_service as I
 
 bp = Blueprint("main", __name__)
 SERVE_EXT = {".png", ".wav", ".bin", ".json"}
@@ -27,7 +28,7 @@ def _ctx():
 
 
 def _status():
-    return dict(runtime=config.runtime_status(), matlab=M.available(), tts=T.status(), gemini=G.configured(), encoder=S.encoder_status(),
+    return dict(runtime=config.runtime_status(), tts=T.status(), indic=I.status(), gemini=G.configured(), encoder=S.encoder_status(),
                 gemini_models=config.GEMINI_MODELS, dsp_backend=config.DSP_BACKEND)
 
 
@@ -116,15 +117,15 @@ def analysis(slug):
     meta = _profile(slug)
     if request.method == "POST":
         backend = request.form.get("backend", "python")
-        if backend not in ("python", "matlab", "both"):
+        if backend not in ("python", "cuda", "auto"):
             backend = "python"
         try:
             S.run_dsp_analysis(slug, backend)
             flash(f"DSP analysis finished ({backend}).")
-        except (S.EnrollmentError, M.MatlabError) as e:
+        except (S.EnrollmentError, ValueError) as e:
             flash(f"Analysis failed: {e}")
         return redirect(url_for("main.analysis", slug=slug))
-    return render_template("analysis.html", p=meta, res=S.load_analysis(slug), matlab=M.available(),
+    return render_template("analysis.html", p=meta, res=S.load_analysis(slug),
                            has_ref=(PS.profile_dir(slug) / "reference.wav").exists())
 
 
@@ -140,16 +141,27 @@ def synthesize(slug):
                 return default
         lp = num("lp_hz", 0)
         try:
-            m = SY.run(slug, request.form.get("text", ""), language=request.form.get("language", "en"),
-                       use_gemini=request.form.get("use_gemini") == "on", hp_hz=num("hp_hz", 70),
-                       lp_hz=lp or None, target_rms_dbfs=num("target_rms", -20))
+            with tempfile.TemporaryDirectory() as tmp:
+                backend = request.form.get("backend", "xtts")
+                prompt = None
+                if backend == "indicf5":
+                    if not I.status()["configured"]:
+                        raise T.TTSUnavailable(I.status()["note"])
+                    file = request.files.get("prompt_audio")
+                    if file and file.filename:
+                        prompt = Path(tmp) / "prompt.wav"
+                        A.save_as_wav(file, prompt)
+                m = SY.run(slug, request.form.get("text", ""), language=request.form.get("language", "en"),
+                           use_gemini=request.form.get("use_gemini") == "on", hp_hz=num("hp_hz", 70),
+                           lp_hz=lp or None, target_rms_dbfs=num("target_rms", -20), backend=backend,
+                           prompt_path=prompt, prompt_text=request.form.get("prompt_text", ""))
             return redirect(url_for("main.results", slug=slug, run_id=m["run_id"]))
-        except (SY.SynthesisError, T.TTSUnavailable, T.TTSError, S.EnrollmentError, S.EncoderUnavailable) as e:
+        except (SY.SynthesisError, T.TTSUnavailable, T.TTSError, S.EnrollmentError, S.EncoderUnavailable, A.AudioError) as e:
             flash(f"{type(e).__name__.replace('Error', '')}: {e}")
         except Exception as e:                   # noqa: BLE001
             flash(f"Unexpected error: {type(e).__name__}: {e}")
-        return redirect(url_for("main.synthesize", slug=slug))
-    return render_template("synthesize.html", p=meta, langs=T.LANGUAGES, gemini=G.configured(), tts=T.status(),
+    return render_template("synthesize.html", p=meta, langs=T.LANGUAGES, language_names=T.LANGUAGE_NAMES,
+                           gemini=G.configured(), tts=T.status(), indic=I.status(),
                            max_chars=config.MAX_TEXT_CHARS)
 
 
@@ -254,3 +266,34 @@ def exp_files(name):
 @bp.get("/api/status")
 def api_status():
     return jsonify(_status())
+
+
+@bp.get("/profiles/<slug>/export/<run_id>/<fmt>")
+def export_audio(slug, run_id, fmt):
+    _profile(slug)
+    try:
+        SY.load_run(slug, run_id)
+    except SY.SynthesisError:
+        abort(404)
+    directory = PS.profile_dir(slug) / "outputs" / run_id
+    if fmt == "zip":
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(directory.iterdir()):
+                if path.is_file() and path.suffix in SERVE_EXT:
+                    archive.write(path, path.name)
+        buf.seek(0)
+        return send_file(buf, mimetype="application/zip", as_attachment=True, download_name=f"{slug}-{run_id}.zip")
+    if fmt not in A.EXPORTS:
+        abort(400, "Unsupported export format.")
+    codec, mime = A.EXPORTS[fmt]
+    if fmt == "wav":
+        return send_from_directory(directory, "final.wav", as_attachment=True, download_name=f"{slug}-{run_id}.wav")
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / f"speech.{fmt}"
+        try:
+            A.transcode(directory / "final.wav", dest, codec)
+            buf = io.BytesIO(dest.read_bytes())
+        except A.AudioError as exc:
+            abort(422, str(exc))
+    return send_file(buf, mimetype=mime, as_attachment=True, download_name=f"{slug}-{run_id}.{fmt}")

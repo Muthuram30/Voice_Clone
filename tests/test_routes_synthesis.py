@@ -25,13 +25,10 @@ def test_file_serving_is_restricted(enrolled):
     (PS.profile_dir("alice") / "xtts_latents.pt").unlink()
 
 
-def test_analysis_page_python_and_matlab_unavailable(enrolled):
+def test_analysis_page_uses_cuda(enrolled):
     r = enrolled.post("/profiles/bob/analysis", data={"backend": "python"}, follow_redirects=True)
     assert b"DSP analysis finished" in r.data and b"f0_mean_hz" in r.data
-    r = enrolled.post("/profiles/bob/analysis", data={"backend": "matlab"}, follow_redirects=True)
-    from services import matlab_service as M
-    if not M.available()["any"]:
-        assert b"Analysis failed" in r.data
+    assert b"MATLAB" not in r.data
 
 
 def _stub_tts(calls, voices):

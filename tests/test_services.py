@@ -1,6 +1,6 @@
 import json, numpy as np, pytest
 import config
-from services import gemini_service as G, matlab_service as M, quant_service as Q, speaker_service as S, tts_service as T
+from services import gemini_service as G, quant_service as Q, speaker_service as S, tts_service as T
 
 
 class _Resp:
@@ -62,13 +62,6 @@ def test_tts_rejects_unenrolled_and_bad_language(env):
         T.synthesize("fresh", ["Hi."])
     PS.delete("fresh")
 
-
-def test_matlab_missing_is_reported_not_faked(env, monkeypatch, tmp_path):
-    monkeypatch.setattr(config, "MATLAB_MODE", "cli"); monkeypatch.setattr(config, "MATLAB_EXE", "")
-    monkeypatch.setenv("PATH", "/nonexistent")
-    a = M.available(); assert isinstance(a["any"], bool)
-    with pytest.raises(M.MatlabError, match="matlab executable not found"):
-        M.run_analysis(tmp_path / "x.wav", tmp_path / "o")
 
 
 def test_classifier_quantisation_reports_real_measurements(enrolled):

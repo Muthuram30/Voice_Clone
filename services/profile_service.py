@@ -4,7 +4,7 @@ profiles/<slug>/
     metadata.json            profile + enrollment state
     reference.wav            the uploaded enrollment recording (as PCM16 WAV)
     reference_clean.wav      preprocessed, speech-only audio (16 kHz)
-    xtts_reference.wav       ~30 s of evenly spaced speech chunks used to condition XTTS
+    xtts_reference.wav       continuous original-audio excerpts used to condition XTTS
     speaker_embedding.npy    centroid embedding of this profile
     chunk_embeddings.npy     per-chunk embeddings (used by the PCA/SVM experiment)
     xtts_latents.pt          cached XTTS conditioning latents (created on first synthesis)
@@ -24,7 +24,7 @@ _lock = threading.RLock()
 
 # Files/folders created by enrollment; wiped whenever a new reference is uploaded.
 DERIVED = ["processed.wav", "reference_clean.wav", "xtts_reference.wav", "speaker_embedding.npy",
-           "chunk_embeddings.npy", "xtts_latents.pt", "analysis", "preview.png"]
+           "chunk_embeddings.npy", "xtts_latents.pt", "xtts_references", "analysis", "preview.png"]
 
 
 class ProfileError(Exception):

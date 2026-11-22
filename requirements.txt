@@ -1,5 +1,7 @@
-# Core app: enough for enrollment, DSP analysis, PCA/SVM, quantisation of the classifier, compression, tests.
-# (No PyTorch needed. Synthesis needs requirements-tts.txt as well.)
+# Core app and CUDA DSP. Install matching CUDA PyTorch/torchaudio wheels first.
+# Voice synthesis and ECAPA additionally need requirements-tts.txt.
+torch>=2.1
+torchaudio>=2.1
 flask>=3.0
 python-dotenv>=1.0
 numpy>=1.26

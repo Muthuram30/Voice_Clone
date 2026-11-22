@@ -2,8 +2,8 @@
 
 Encoders
     ecapa-tdnn   SpeechBrain ECAPA-TDNN, PRETRAINED on VoxCeleb (we do not train it). 192-d embeddings.
-    mfcc-stats   Classical baseline: mean/std of MFCCs + delta std (57-d). Not a neural model. Always available;
-                 used automatically when SpeechBrain/PyTorch is not installed. Metadata records which was used.
+    mfcc-stats   Classical baseline: mean/std of MFCCs + delta std (57-d), computed with CUDA DSP.
+                 Used when configured or SpeechBrain is unavailable. Metadata records which was used.
 
 Enrollment = DSP analysis + speech extraction + per-chunk embeddings + centroid. Each profile keeps its own
 files; the only cross-profile object is the PCA/SVM classifier, which is *trained from* each profile's chunk
@@ -26,6 +26,7 @@ from sklearn.svm import LinearSVC
 
 import config
 from services import audio_service as A, dsp_service as D, profile_service as PS
+from services import gpu_dsp as GPU
 
 
 class EncoderUnavailable(Exception):
@@ -39,13 +40,13 @@ class EnrollmentError(Exception):
 # ------------------------------------------------------------------ encoders
 class MfccStatsEncoder:
     name, l2, pretrained = "mfcc-stats", False, False
-    source = "librosa MFCC statistics (classical baseline, no neural network)"
+    source = "torchaudio CUDA MFCC statistics (classical baseline, no neural network)"
 
     def embed(self, chunks):
         out = []
         for c in chunks:
-            m = librosa.feature.mfcc(y=c, sr=16000, n_mfcc=20, n_fft=512, hop_length=160, n_mels=40)[1:]
-            d = librosa.feature.delta(m, width=9)
+            m = GPU.mfcc(y=c, sr=16000, n_mfcc=20, n_fft=512, hop_length=160, n_mels=40)[1:]
+            d = GPU.delta(m, width=9)
             out.append(np.concatenate([m.mean(1), m.std(1), d.std(1)]))
         return np.asarray(out, dtype=np.float32)
 
@@ -74,8 +75,12 @@ class EcapaEncoder:
         # triggers its parser fallback even though inference still lands on GPU.
         self.device = config.TORCH_DEVICE
         try:
+            saved = config.MODELS_DIR / "ecapa"
+            cached = all((saved / f).is_file() for f in ("hyperparams.yaml", "embedding_model.ckpt",
+                         "mean_var_norm_emb.ckpt", "classifier.ckpt", "label_encoder.ckpt"))
             self.clf = EncoderClassifier.from_hparams(
-                source="speechbrain/spkrec-ecapa-voxceleb", savedir=str(config.MODELS_DIR / "ecapa"),
+                source=str(saved) if cached else "speechbrain/spkrec-ecapa-voxceleb", savedir=str(saved),
+                overrides={"pretrained_path": str(saved)} if cached else {},
                 run_opts={"device": self.device}, **kw)
         except Exception as e:                                      # noqa: BLE001
             raise EncoderUnavailable(f"Could not load the ECAPA model (first run needs internet to download it): {e}")
@@ -133,7 +138,7 @@ def chunk_signal(y, fs, seconds=None, hop_s=None):
 
 def embed_signal(y, fs, enc):
     if fs != 16000:
-        y = librosa.resample(np.asarray(y, np.float32), orig_sr=fs, target_sr=16000, res_type="soxr_hq")
+        y = GPU.resample(np.asarray(y, np.float32), orig_sr=fs, target_sr=16000, res_type="soxr_hq")
     y = np.asarray(y, np.float32)
     y = y / (np.max(np.abs(y)) + 1e-9) * 0.9
     E = enc.embed(chunk_signal(y, 16000))
@@ -150,60 +155,92 @@ def _cos(a, b):
 
 
 # ------------------------------------------------------------------ TTS reference (original sample rate)
-def make_tts_reference(slug, vad, win_s=6.0, n_win=5):
-    """~30 s of speech from the *original* recording for XTTS conditioning.
-    The VAD speech regions are cut from the original-rate audio (light processing only: DC removal, 60 Hz
-    high-pass, 5 ms fades, NO denoising so no artefacts reach the voice model), concatenated, and `n_win`
-    evenly spaced windows of `win_s` seconds are taken so the whole recording contributes."""
-    import scipy.signal as ss
+def select_reference_windows(y, fs, regions, win_s=12.0, n_win=2):
+    """Rank uncut original-audio windows; preserve breaths, timing and intonation."""
+    length = min(len(y), round(win_s * fs))
+    if length < 6 * fs:
+        raise EnrollmentError("Need at least six seconds for a natural voice reference.")
+    last = len(y) - length
+    starts = sorted(set(range(0, last + 1, max(1, fs // 2))) | {last})
+    ranked = []
+    for start in starts:
+        end = start + length
+        segment = y[start:end]
+        a, b = start / fs, end / fs
+        speech = sum(max(0., min(b, right) - max(a, left)) for left, right in regions) / (b - a)
+        rms = float(np.sqrt(np.mean(segment ** 2)))
+        clipping = float(np.mean(np.abs(segment) >= .999))
+        if speech < .35 or rms < .003 or clipping > .01:
+            continue
+        edge = max(1, round(.02 * fs))
+        edge_rms = float(np.sqrt(np.mean(np.concatenate((segment[:edge], segment[-edge:])) ** 2)))
+        score = speech - 4 * clipping - .05 * edge_rms / (rms + 1e-9)
+        ranked.append((score, start, end))
+    chosen = []
+    for _, start, end in sorted(ranked, reverse=True):
+        if all(end <= a or start >= b for a, b in chosen):
+            chosen.append((start, end))
+        if len(chosen) == n_win:
+            break
+    if not chosen:
+        raise EnrollmentError("No clean continuous reference found. Record clear speech without clipping or long pauses.")
+    return chosen
+
+
+def make_tts_reference(slug, vad, win_s=12.0, n_win=2):
+    """Uncut reference excerpts; do not splice syllables together with VAD."""
     y, fs, _ = D.load_mono(PS.path(slug, "reference.wav"), None)
     if fs > 22050:
-        y = librosa.resample(y, orig_sr=fs, target_sr=22050, res_type="soxr_hq"); fs = 22050
-    y = y - y.mean()
-    b, a = ss.butter(2, 60 / (fs / 2), "high"); y = ss.filtfilt(b, a, y).astype(np.float32)
-    fade = max(int(0.005 * fs), 1); parts = []
-    for t0, t1 in vad["regions"]:
-        seg = y[int(t0 * fs): int(t1 * fs)].copy()
-        if len(seg) > 2 * fade:
-            seg[:fade] *= np.linspace(0, 1, fade); seg[-fade:] *= np.linspace(1, 0, fade); parts.append(seg)
-    sp = np.concatenate(parts) if parts else np.zeros(0, np.float32)
-    W = int(win_s * fs)
-    if len(sp) < W:
-        raise EnrollmentError("Not enough speech to build the TTS reference.")
-    k = min(n_win, len(sp) // W)
-    starts = np.linspace(0, len(sp) - W, k).astype(int)
-    ref_y = np.concatenate([sp[s:s + W] for s in starts])
-    ref_y = ref_y / (np.max(np.abs(ref_y)) + 1e-9) * 0.9
-    D.write_wav(PS.path(slug, "xtts_reference.wav"), ref_y, fs)
-    return dict(sample_rate=int(fs), seconds=round(len(ref_y) / fs, 1), windows=int(k),
-                window_start_in_speech_s=[round(s / fs, 1) for s in starts])
+        y = GPU.resample(y, orig_sr=fs, target_sr=22050); fs = 22050
+    y = GPU.host(GPU.filter_audio(GPU.tensor(y).float() - float(y.mean()), fs, hp=40))
+    windows = select_reference_windows(y, fs, vad["regions"], win_s, n_win)
+    excerpts = [y[start:end].copy() for start, end in windows]
+    peak = max(float(np.abs(excerpt).max()) for excerpt in excerpts)
+    gain = .9 / max(peak, 1e-9)
+    fade = max(1, round(.005 * fs))
+    for excerpt in excerpts:
+        excerpt *= gain
+        excerpt[:fade] *= np.linspace(0, 1, fade)
+        excerpt[-fade:] *= np.linspace(1, 0, fade)
+    D.write_wav(PS.path(slug, "xtts_reference.wav"), np.concatenate(excerpts), fs)
+    refs = PS.profile_dir(slug) / "xtts_references"
+    refs.mkdir(exist_ok=True)
+    for old in refs.glob("*.wav"):
+        old.unlink()
+    for i, excerpt in enumerate(excerpts):
+        D.write_wav(refs / f"reference_{i+1:02d}.wav", excerpt, fs)
+    return dict(sample_rate=int(fs), seconds=round(sum(map(len, excerpts)) / fs, 1),
+                windows=len(windows), source_windows_s=[[round(a/fs, 3), round(b/fs, 3)] for a, b in windows],
+                conditioning_references=len(windows), selection="continuous-v1")
+
+
+def ensure_continuous_tts_reference(slug):
+    """Upgrade legacy stitched references once, keeping the original recording intact."""
+    meta = PS.get(slug)
+    ref = PS.profile_dir(slug) / "reference.wav"
+    if meta.get("enrollment", {}).get("tts_reference", {}).get("selection") == "continuous-v1" or not ref.exists():
+        return
+    y, fs, _ = D.load_mono(ref, 16000)
+    prepared = D.preprocess(y, fs, denoise=False)
+    vad = D.energy_vad(prepared["processed"], fs)
+    reference = make_tts_reference(slug, vad)
+    PS.update(slug, enrollment={"tts_reference": reference, "tts_conditioning": "pending (reference upgraded)"})
 
 
 # ------------------------------------------------------------------ DSP analysis for a profile
 def run_dsp_analysis(slug, backend="auto"):
-    """backend: python | matlab | both | auto (python + MATLAB if installed). Returns dict of results by backend."""
-    from services import matlab_service as M
+    """Run CUDA DSP; Python generates reports and plots."""
+    if backend not in ("python", "cuda", "auto"):
+        raise EnrollmentError("This application uses CUDA DSP. Select Python / CUDA analysis.")
     ref = PS.path(slug, "reference.wav")
     if not ref.exists():
         raise EnrollmentError("Upload a recording first.")
-    out = {}
-    if backend in ("python", "both", "auto", "matlab"):
-        r = D.analyze(ref, PS.path(slug, "analysis", "python", "x").parent, config.TARGET_FS)
-        out["python"] = r
-    want_matlab = backend in ("matlab", "both") or (backend == "auto" and config.DSP_BACKEND != "python" and M.available()["any"])
-    if want_matlab:
-        try:
-            out["matlab"] = M.run_analysis(ref, PS.path(slug, "analysis", "matlab", "x").parent, config.TARGET_FS)
-        except M.MatlabError as e:
-            if backend == "matlab":
-                raise
-            out["matlab"] = dict(status="error", message=str(e), note="Python DSP result retained")
-    return out
+    return {"python": D.analyze(ref, PS.path(slug, "analysis", "python", "x").parent, config.TARGET_FS)}
 
 
 def load_analysis(slug):
     res = {}
-    for b in ("python", "matlab"):
+    for b in ("python",):
         p = PS.profile_dir(slug) / "analysis" / b / "results.json"
         if p.exists():
             res[b] = json.loads(p.read_text())
@@ -254,19 +291,6 @@ def enroll(slug):
         internal["vad"]["fs"] = fs
         ttsref = make_tts_reference(slug, internal["vad"])
         steps["tts_reference"] = "ok"
-        # 2. optional MATLAB analysis (non-fatal here; explicit runs on the DSP page surface errors)
-        if config.DSP_BACKEND != "python":
-            from services import matlab_service as M
-            if M.available()["any"]:
-                try:
-                    M.run_analysis(ref, PS.path(slug, "analysis", "matlab", "x").parent, config.TARGET_FS)
-                    steps["dsp_matlab"] = "ok"
-                except M.MatlabError as e:
-                    steps["dsp_matlab"] = f"failed: {str(e)[:200]}"
-            else:
-                steps["dsp_matlab"] = "skipped (MATLAB not found)"
-        else:
-            steps["dsp_matlab"] = "skipped (DSP_BACKEND=python)"
         # 3. speaker embeddings
         enc, note = get_encoder()
         E = embed_signal(clean, fs, enc)

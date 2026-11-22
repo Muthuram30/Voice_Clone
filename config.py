@@ -34,9 +34,9 @@ def initialize_runtime():
     global _runtime_initialized, TORCH_AVAILABLE, CUDA_AVAILABLE, TORCH_DEVICE, GPU_NAME
     if _runtime_initialized:
         return
-    _runtime_initialized = True
-
     _tts_device_setting = TTS_DEVICE.lower().strip()
+    if _tts_device_setting not in {"auto", "cpu", "cuda"}:
+        raise ValueError("TTS_DEVICE must be auto, cpu or cuda.")
 
     try:
         import torch
@@ -45,6 +45,8 @@ def initialize_runtime():
         GPU_NAME = torch.cuda.get_device_name(0) if CUDA_AVAILABLE else None
     except Exception as exc:  # noqa: BLE001 - CPU-only installs remain supported
         TORCH_AVAILABLE = False
+        CUDA_AVAILABLE = False
+        GPU_NAME = None
         log.warning("PyTorch is not installed or failed to import (%s). Running CPU-only.", exc)
 
     if _tts_device_setting == "cpu":
@@ -94,14 +96,17 @@ def initialize_runtime():
             "[config] Device selected: cpu (TTS_DEVICE=%s, CUDA available=%s)",
             TTS_DEVICE, CUDA_AVAILABLE,
         )
+    # Failed initialization must remain retryable rather than skipping validation
+    # on the next application factory / status call.
+    _runtime_initialized = True
 
 
 def runtime_status():
     initialize_runtime()
     return dict(torch_available=TORCH_AVAILABLE, cuda_available=CUDA_AVAILABLE,
                 device=TORCH_DEVICE, gpu=GPU_NAME,
-                gpu_stages=["ECAPA-TDNN", "XTTS-v2"] if TORCH_DEVICE.startswith("cuda") else [],
-                cpu_stages=["audio I/O", "librosa/SciPy DSP", "matplotlib", "scikit-learn", "MATLAB (optional)"])
+                gpu_stages=["CUDA DSP", "ECAPA-TDNN", "XTTS-v2"] if TORCH_DEVICE.startswith("cuda") else [],
+                cpu_stages=["audio I/O", "matplotlib", "scikit-learn"])
 
 def _f(name, default): return float(os.getenv(name, default))
 def _i(name, default): return int(os.getenv(name, default))
@@ -112,17 +117,13 @@ def _p(name, default):
 PROFILES_DIR = _p("PROFILES_DIR", "profiles")
 MODELS_DIR = _p("MODELS_DIR", "models")
 DATA_DIR = _p("DATA_DIR", "data")
-MATLAB_DIR = ROOT / "matlab"
 
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-change-me")
 SEED_DEFAULT_PROFILES = os.getenv("SEED_DEFAULT_PROFILES", "1") == "1"
 
 # ---- DSP / analysis -------------------------------------------------------
 TARGET_FS = _i("TARGET_FS", 16000)                 # analysis + speaker-encoder rate
-DSP_BACKEND = os.getenv("DSP_BACKEND", "auto")     # auto | python | matlab
-MATLAB_MODE = os.getenv("MATLAB_MODE", "auto")     # auto | engine | cli
-MATLAB_DESKTOP = os.getenv("MATLAB_DESKTOP", "0")
-MATLAB_EXE = os.getenv("MATLAB_EXE", "")
+DSP_BACKEND = "python"  # CUDA kernels, Python orchestration
 
 # ---- Enrollment validation ------------------------------------------------
 ENROLL_TARGET_S = _f("ENROLL_TARGET_SECONDS", 120)       # what the script is written for
@@ -138,7 +139,7 @@ CHUNK_HOP_S = _f("EMBED_CHUNK_HOP_SECONDS", 1.5)
 
 # ---- TTS ------------------------------------------------------------------
 XTTS_MODEL = os.getenv("XTTS_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2")
-TTS_DEVICE = os.getenv("TTS_DEVICE", "auto")             # auto | cpu | cuda
+TTS_DEVICE = os.getenv("TTS_DEVICE", "cuda")             # auto | cpu | cuda
 FFMPEG_BIN_DIR = os.getenv("FFMPEG_BIN_DIR", "")         # full-shared FFmpeg bin directory (Windows)
 COQUI_TOS_AGREED = os.getenv("COQUI_TOS_AGREED", "0")
 MAX_TEXT_CHARS = _i("MAX_TEXT_CHARS", 1500)

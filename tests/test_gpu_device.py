@@ -133,6 +133,19 @@ class TestDeviceSelection:
         config.initialize_runtime()
         assert config.TORCH_DEVICE == "sentinel"
 
+    def test_failed_initialization_rechecks_cuda_on_retry(self, monkeypatch):
+        _reset_runtime(monkeypatch)
+        monkeypatch.setattr(config, "TTS_DEVICE", "cuda")
+        with patch.dict("sys.modules", {"torch": _fake_torch(cuda_available=False)}):
+            for _ in range(2):
+                with pytest.raises(config.CudaNotAvailableError, match="TTS_DEVICE=cuda"):
+                    config.initialize_runtime()
+                assert config._runtime_initialized is False
+        with patch.dict("sys.modules", {"torch": _fake_torch(cuda_available=True)}):
+            config.initialize_runtime()
+        assert config.TORCH_DEVICE == "cuda:0"
+        assert config._runtime_initialized is True
+
 
 # ── tts_service helpers ───────────────────────────────────────────────────────
 

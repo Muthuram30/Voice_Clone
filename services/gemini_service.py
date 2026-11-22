@@ -38,16 +38,19 @@ def split_sentences(text: str, max_chars: int | None = None) -> list[str]:
     parts = [p.strip() for p in re.split(r"(?<=[.!?…。！？])\s+", text) if p.strip()]
     out = []
     for p in parts:
+        # Punctuation belongs to the original sentence, not to arbitrary model
+        # length boundaries. A forced full stop on every fragment flattens prosody.
+        if not re.search(r"[.!?…。！？]$", p):
+            p += "."
         while len(p) > max_chars:
             cut = max(p.rfind(c, 0, max_chars) for c in (",", ";", ":"))
             if cut < max_chars * 0.4:
                 cut = p.rfind(" ", 0, max_chars)
-            if cut <= 0:
-                cut = max_chars
-            out.append(p[:cut + 1].strip()); p = p[cut + 1:].strip()
+            end = cut + 1 if cut > 0 else max_chars
+            out.append(p[:end].strip()); p = p[end:].strip()
         if p:
             out.append(p)
-    return [s if re.search(r"[.!?…。！？]$", s) else s + "." for s in out]
+    return out
 
 
 def local_normalize(text: str, language: str = "en") -> list[str]:

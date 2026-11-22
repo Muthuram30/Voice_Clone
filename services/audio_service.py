@@ -1,5 +1,8 @@
 """Audio upload handling and enrollment-recording validation."""
 import hashlib
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +11,34 @@ import soundfile as sf
 import config
 from services import dsp_service as D
 
-ALLOWED = {".wav", ".flac", ".ogg"}
+ALLOWED = {".wav", ".flac", ".ogg", ".mp3", ".m4a", ".aac", ".opus", ".webm",
+           ".mp4", ".mov", ".mkv", ".avi", ".aif", ".aiff", ".wma"}
+EXPORTS = {"wav": ("pcm_s16le", "audio/wav"), "flac": ("flac", "audio/flac"),
+           "mp3": ("libmp3lame", "audio/mpeg"), "ogg": ("libvorbis", "audio/ogg"),
+           "opus": ("libopus", "audio/ogg"), "m4a": ("aac", "audio/mp4"),
+           "aiff": ("pcm_s16be", "audio/aiff")}
+
+
+def ffmpeg():
+    configured = Path(config.FFMPEG_BIN_DIR) / "ffmpeg.exe"
+    path = str(configured) if configured.is_file() else shutil.which("ffmpeg")
+    if not path:
+        raise AudioError("FFmpeg is required for this format. Set FFMPEG_BIN_DIR in .env.")
+    return path
+
+
+def transcode(src, dest, codec, duration=None):
+    args = [ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+            "-protocol_whitelist", "file,pipe", "-i", str(src), "-map", "0:a:0", "-vn", "-ac", "1"]
+    if duration is not None:
+        args += ["-t", str(duration), "-ar", "48000"]
+    args += ["-c:a", codec, str(dest)]
+    try:
+        subprocess.run(args, check=True, capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired as exc:
+        raise AudioError("Audio conversion exceeded two minutes. Use a shorter recording.") from exc
+    except subprocess.CalledProcessError as exc:
+        raise AudioError("FFmpeg could not read or write this media format. Check that the file contains audio.") from exc
 
 # ~280 words: read aloud at a natural pace this is roughly two minutes. The first paragraph is the
 # fixed sentence from the project specification. Phonetically varied on purpose.
@@ -55,13 +85,19 @@ def inspect(path) -> dict:
 
 def convert_to_wav(src: Path, dest: Path) -> dict:
     """Decode any supported file at `src` and write PCM16 WAV at `dest` (rate/channels kept)."""
-    info = inspect(src)
     try:
+        info = inspect(src)
+        if info["duration_s"] > config.ENROLL_MAX_S:
+            raise AudioError(f"Recording exceeds {config.ENROLL_MAX_S:.0f} seconds.")
         x, fs = sf.read(str(src), dtype="float32", always_2d=True)
+        if not len(x) or not np.isfinite(x).all():
+            raise AudioError("Recording is empty or contains invalid samples.")
         dest.parent.mkdir(parents=True, exist_ok=True)
         sf.write(str(dest), x, fs, subtype="PCM_16")
-    except Exception as e:  # noqa: BLE001
-        raise AudioError(f"Could not decode audio: {e}")
+    except (RuntimeError, AudioError):
+        # Browser WebM/Opus, AAC and video containers need FFmpeg, not libsndfile.
+        transcode(src, dest, "pcm_s16le", duration=config.ENROLL_MAX_S + 1)
+        info = inspect(dest)
     return info
 
 
@@ -70,13 +106,11 @@ def save_as_wav(file_storage, dest: Path) -> dict:
     name = Path(file_storage.filename or "").name
     if Path(name).suffix.lower() not in ALLOWED:
         raise AudioError(f"Unsupported file type '{Path(name).suffix}'. Use: {', '.join(sorted(ALLOWED))}.")
-    tmp = dest.with_suffix(".upload.tmp")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    file_storage.save(tmp)
-    try:
+    with tempfile.TemporaryDirectory(dir=dest.parent) as td:
+        tmp = Path(td) / ("upload" + Path(name).suffix.lower())
+        file_storage.save(tmp)
         info = convert_to_wav(tmp, dest)
-    finally:
-        tmp.unlink(missing_ok=True)
     info["original_filename"] = name
     return info
 

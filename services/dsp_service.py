@@ -1,4 +1,4 @@
-"""Python implementation of the DSP chain (portable twin of matlab/*.m).
+"""CUDA DSP chain with Python report generation.
 
 Stages: load -> mono -> resample -> DC removal -> high-pass -> spectral-subtraction noise reduction
 -> peak normalisation -> pre-emphasis -> VAD -> pitch (autocorrelation) -> voiced/unvoiced/silence
@@ -13,11 +13,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy.fft as sfft
-import scipy.ndimage as ndi
-import scipy.signal as ss
 import soundfile as sf
-from scipy.linalg import solve_toeplitz
+from services import gpu_dsp as GPU
 
 LOCK = threading.RLock()          # matplotlib is not thread-safe
 HOP_MS, FRAME_MS, PITCH_FRAME_MS = 10, 25, 40
@@ -38,7 +35,7 @@ def load_mono(path, target_fs=None):
     info = dict(orig_fs=int(fs0), channels=int(x.shape[1]), duration=len(x) / fs0)
     y = x.mean(axis=1)
     if target_fs and fs0 != target_fs:
-        y = librosa.resample(y, orig_sr=fs0, target_sr=target_fs, res_type="soxr_hq")
+        y = GPU.resample(y, orig_sr=fs0, target_sr=target_fs, res_type="soxr_hq")
         fs0 = target_fs
     return y.astype(np.float32), int(fs0), info
 
@@ -71,79 +68,18 @@ def _flen(fs, ms):
 
 
 # ---------------------------------------------------------------- preprocessing
-def spectral_subtract(y, fs):
-    """Spectral-subtraction noise reduction; noise = mean magnitude of the quietest 10 % frames."""
-    S = librosa.stft(y, n_fft=512, hop_length=128, window="hann")
-    mag = np.abs(S)
-    e = (mag ** 2).sum(0)
-    idx = np.argsort(e)[: max(1, int(0.1 * len(e)))]
-    noise = mag[:, idx].mean(1, keepdims=True)
-    mag2 = np.maximum(mag - 1.5 * noise, 0.05 * mag)
-    out = librosa.istft(mag2 * np.exp(1j * np.angle(S)), hop_length=128, window="hann", length=len(y))
-    return out.astype(np.float32)
+spectral_subtract = GPU.spectral_subtract
 
 
-def preprocess(y, fs, denoise=True):
-    y = y - np.mean(y)                                           # DC removal
-    b, a = ss.butter(4, 80 / (fs / 2), "high")                   # rumble filter
-    hp = ss.filtfilt(b, a, y).astype(np.float32)
-    yd = spectral_subtract(hp, fs) if denoise else hp
-    yd = (yd / (np.max(np.abs(yd)) + 1e-12) * 0.95).astype(np.float32)   # peak normalisation
-    emph = ss.lfilter([1, -0.97], [1], yd).astype(np.float32)    # pre-emphasis
-    return dict(raw=y.astype(np.float32), hp=hp, processed=yd, emph=emph, fs=fs)
+preprocess = GPU.preprocess
 
 
 # ---------------------------------------------------------------- VAD
-def energy_vad(y, fs):
-    """Energy VAD with adaptive threshold, gap closing, short-burst removal and hangover."""
-    L, H = _flen(fs, FRAME_MS), _hop(fs)
-    e = 10 * np.log10(np.mean(frames(y, L, H) ** 2, axis=1) + 1e-12)
-    floor, top = np.percentile(e, 10), np.percentile(e, 95)
-    thr = max(floor + max(0.3 * (top - floor), 6.0), -55.0)
-    m = e > thr
-    m = ndi.binary_closing(m, np.ones(15))        # bridge gaps < 150 ms
-    m = ndi.binary_opening(m, np.ones(10))        # drop bursts < 100 ms
-    m = ndi.binary_dilation(m, np.ones(5))        # hangover
-    d = np.diff(np.concatenate([[0], m.astype(int), [0]]))
-    st, en = np.where(d == 1)[0], np.where(d == -1)[0]
-    regions = [[float(a * H / fs), float(b * H / fs)] for a, b in zip(st, en)]
-    return dict(mask=m, e_db=e, thr_db=float(thr), regions=regions,
-                speech_ratio=float(m.mean()), hop=H, frame_len=L)
+energy_vad = GPU.energy_vad
 
 
 # ---------------------------------------------------------------- pitch / voicing
-def pitch_track(y, fs, fmin=60.0, fmax=400.0, voicing_thr=0.50):
-    """Autocorrelation pitch tracker. Returns f0 (NaN where unvoiced), voicing strength, times."""
-    L, H = _flen(fs, PITCH_FRAME_MS), _hop(fs)
-    w = np.hanning(L)
-    fr = frames(y, L, H) * w
-    n = 2 ** int(np.ceil(np.log2(2 * L)))
-    r = np.fft.irfft(np.abs(np.fft.rfft(fr, n, axis=1)) ** 2, n, axis=1)[:, :L]
-    rw = np.fft.irfft(np.abs(np.fft.rfft(w, n)) ** 2, n)[:L]       # undo window taper bias
-    rn = r / (rw[None, :] + 1e-12)
-    rn = rn / (rn[:, :1] + 1e-12)
-    lo, hi = int(np.floor(fs / fmax)), int(np.ceil(fs / fmin))
-    seg = rn[:, lo:hi + 1]
-    interior = np.zeros_like(seg, dtype=bool)
-    interior[:, 1:-1] = (seg[:, 1:-1] > seg[:, :-2]) & (seg[:, 1:-1] >= seg[:, 2:])
-    mx = np.where(interior, seg, -np.inf).max(1)
-    cand = interior & (seg >= 0.9 * mx[:, None])                  # first strong peak: avoids octave errors
-    k = np.argmax(cand, axis=1)
-    k = np.clip(k, 1, seg.shape[1] - 2)
-    rows = np.arange(len(k))
-    y1, y2, y3 = seg[rows, k - 1], seg[rows, k], seg[rows, k + 1]
-    den = (y1 - 2 * y2 + y3)
-    delta = np.where(np.abs(den) > 1e-12, 0.5 * (y1 - y3) / den, 0.0)
-    lag = lo + k + np.clip(delta, -1, 1)
-    strength = y2
-    f0 = fs / lag
-    rms = np.sqrt(np.mean(fr ** 2, axis=1))
-    voiced = (strength > voicing_thr) & np.isfinite(mx) & (rms > 1e-4) & (f0 >= fmin) & (f0 <= fmax)
-    f0m = ss.medfilt(np.where(voiced, f0, 0.0), 5)
-    voiced = voiced & (f0m > 0)
-    f0m = np.where(voiced, f0m, np.nan)
-    t = np.arange(len(f0)) * H / fs
-    return dict(f0=f0m, strength=strength, voiced=voiced, t=t)
+pitch_track = GPU.pitch_track
 
 
 def vuv_labels(vad_mask, voiced):
@@ -155,57 +91,16 @@ def vuv_labels(vad_mask, voiced):
 
 
 # ---------------------------------------------------------------- LPC formants
-def _lpc(seg, order):
-    r = np.correlate(seg, seg, "full")[len(seg) - 1: len(seg) + order]
-    if r[0] <= 0:
-        return None
-    r = r.copy(); r[0] *= 1.000001
-    try:
-        a = solve_toeplitz(r[:order], r[1:order + 1])
-    except Exception:
-        return None
-    return np.concatenate([[1.0], -a])
 
 
-def lpc_formants(emph, fs, labels, hop):
-    L, step, order = int(0.03 * fs), int(0.02 * fs), 2 + int(round(fs / 1000))
-    win = np.hamming(L)
-    out = []
-    for s in range(0, len(emph) - L, step):
-        k = min(int(round((s + L // 2) / hop)), len(labels) - 1)
-        if labels[k] != 2:
-            continue
-        seg = emph[s:s + L] * win
-        if np.sqrt(np.mean(seg ** 2)) < 1e-3:
-            continue
-        a = _lpc(seg, order)
-        if a is None:
-            continue
-        rt = np.roots(a); rt = rt[np.imag(rt) > 0.01]
-        fr = np.arctan2(rt.imag, rt.real) * fs / (2 * np.pi)
-        bw = -np.log(np.abs(rt)) * fs / np.pi
-        o = np.argsort(fr); fr, bw = fr[o], bw[o]
-        fr = fr[(fr > 90) & (bw < 400)]
-        if len(fr) >= 3:
-            out.append(fr[:3])
-    F = np.array(out) if out else np.zeros((0, 3))
-    med = np.median(F, 0) if len(F) else np.array([np.nan] * 3)
-    return dict(F=F, median=med, frames=int(len(F)))
+lpc_formants = GPU.lpc_formants
 
 
 # ---------------------------------------------------------------- features
-def spectral_feats(y, fs):
-    H = _hop(fs)
-    cen = librosa.feature.spectral_centroid(y=y, sr=fs, n_fft=512, hop_length=H)[0]
-    rol = librosa.feature.spectral_rolloff(y=y, sr=fs, n_fft=512, hop_length=H, roll_percent=0.85)[0]
-    zcr = librosa.feature.zero_crossing_rate(y, frame_length=_flen(fs, FRAME_MS), hop_length=H)[0]
-    return cen, rol, zcr
+spectral_feats = GPU.spectral_feats
 
 
-def mfcc_feats(y, fs):
-    H = _hop(fs)
-    m = librosa.feature.mfcc(y=y, sr=fs, n_mfcc=13, n_fft=512, hop_length=H, n_mels=40, fmin=0, fmax=fs / 2)
-    return m, librosa.feature.delta(m, width=9)
+mfcc_feats = GPU.mfcc_feats
 
 
 def feature_vector(mfcc, dmfcc, f0, formants_median, cen, rol, zcr, vad_mask, vuv):
@@ -281,7 +176,7 @@ def plot_waveform(raw, proc, fs, vad_mask, hop, path, title2="Processed (denoise
 
 
 def plot_spectrogram(y, fs, path, title="Spectrogram (STFT, 512-pt Hann)"):
-    S = librosa.stft(y, n_fft=512, hop_length=128, window="hann")
+    S = GPU.stft(y, n_fft=512, hop_length=128, window="hann")
     D = librosa.amplitude_to_db(np.abs(S), ref=np.max, top_db=80)
     fig, ax = plt.subplots(figsize=(10, 4))
     im = ax.imshow(D, origin="lower", aspect="auto", extent=[0, len(y) / fs, 0, fs / 2], cmap="magma")
@@ -298,9 +193,9 @@ def fft_analysis(raw, proc, fs, labels, hop, path):
     i0 = int(np.argmax(e)) if e.max() > 0 else len(proc) // (2 * hop)
     s = max(0, min(len(proc) - N, i0 * hop - N // 2))
     seg = proc[s:s + N] * np.hanning(N) if len(proc) >= N else np.pad(proc, (0, N - len(proc))) * np.hanning(N)
-    Fm = 20 * np.log10(np.abs(np.fft.rfft(seg)) + 1e-9)
+    Fm = 20 * np.log10(np.abs(GPU.host(GPU.torch.fft.rfft(GPU.tensor(seg)))) + 1e-9)
     fr = np.fft.rfftfreq(N, 1 / fs)
-    f1, p1 = ss.welch(raw, fs, nperseg=2048); f2, p2 = ss.welch(proc, fs, nperseg=2048)
+    f1, p1 = GPU.welch(raw, fs, nperseg=2048); f2, p2 = GPU.welch(proc, fs, nperseg=2048)
     fig, ax = plt.subplots(1, 2, figsize=(12, 4))
     ax[0].plot(fr, Fm, lw=0.8); ax[0].set_title("FFT of strongest voiced frame (128 ms)")
     ax[0].set_xlabel("Frequency (Hz)"); ax[0].set_ylabel("dB")
@@ -365,7 +260,7 @@ PLOT_DEFS = [("waveform", "Original vs processed waveform"), ("spectrogram", "Sp
 
 def analyze(wav_path, out_dir, target_fs=16000, denoise=True):
     """Run the whole DSP chain on one recording. Writes plots, processed.wav, features.json,
-    results.json into out_dir and returns the results dict (same contract as MATLAB's main_analysis)."""
+    results.json into out_dir and returns the results dict (CUDA analysis contract)."""
     t0 = time.time()
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     with LOCK:
@@ -406,7 +301,7 @@ def analyze(wav_path, out_dir, target_fs=16000, denoise=True):
     )
     (out / "features.json").write_text(json.dumps(
         dict(names=FEATURE_NAMES, values=[None if not np.isfinite(v) else float(v) for v in vec])))
-    res = dict(status="ok", backend="python", stats=stats,
+    res = dict(status="ok", backend="python", device="cuda:0", stats=stats,
                plots=[dict(key=k, title=t, file=f"{k}.png") for k, t in PLOT_DEFS], vad_regions=V["regions"][:200])
     (out / "results.json").write_text(json.dumps(res))
     # arrays other services need (kept in memory, returned to caller only)
@@ -417,7 +312,7 @@ def analyze(wav_path, out_dir, target_fs=16000, denoise=True):
 def features_of(y, fs, target_fs=16000):
     """Feature vector (dict name -> value) for an arbitrary signal; used to compare generated vs reference."""
     if fs != target_fs:
-        y = librosa.resample(y, orig_sr=fs, target_sr=target_fs, res_type="soxr_hq"); fs = target_fs
+        y = GPU.resample(y, orig_sr=fs, target_sr=target_fs, res_type="soxr_hq"); fs = target_fs
     P = preprocess(y, fs, denoise=False)
     V = energy_vad(P["processed"], fs); PT = pitch_track(P["processed"], fs)
     n = min(len(V["mask"]), len(PT["f0"]))
@@ -437,8 +332,8 @@ def snr_db(ref, test):
 def lsd_db(a, b, n_fft=512, hop=128):
     """Log-spectral distance (dB), mean over frames (relative -80 dB floor)."""
     n = min(len(a), len(b))
-    A = np.abs(librosa.stft(a[:n], n_fft=n_fft, hop_length=hop)) ** 2
-    B = np.abs(librosa.stft(b[:n], n_fft=n_fft, hop_length=hop)) ** 2
+    A = np.abs(GPU.stft(a[:n], n_fft=n_fft, hop_length=hop)) ** 2
+    B = np.abs(GPU.stft(b[:n], n_fft=n_fft, hop_length=hop)) ** 2
     fl = 1e-8 * max(A.max(), B.max(), 1e-20)         # relative floor: -80 dB below the loudest bin
     d = 10 * np.log10(A + fl) - 10 * np.log10(B + fl)
     return float(np.mean(np.sqrt(np.mean(d ** 2, axis=0))))
@@ -448,8 +343,8 @@ def ltas_distance_db(a, fs_a, b, fs_b, fs=16000):
     """RMS dB difference between long-term average spectra (0-8 kHz) of two signals."""
     def ltas(x, f):
         if f != fs:
-            x = librosa.resample(x, orig_sr=f, target_sr=fs, res_type="soxr_hq")
-        _, p = ss.welch(x, fs, nperseg=1024)
+            x = GPU.resample(x, orig_sr=f, target_sr=fs, res_type="soxr_hq")
+        _, p = GPU.welch(x, fs, nperseg=1024)
         return 10 * np.log10(p + 1e-14)
     la, lb = ltas(a, fs_a), ltas(b, fs_b)
     la -= la.mean(); lb -= lb.mean()          # compare spectral shape, not level
@@ -457,34 +352,7 @@ def ltas_distance_db(a, fs_a, b, fs_b, fs=16000):
 
 
 # ---------------------------------------------------------------- post-processing
-def postprocess(y, fs, hp_hz=70.0, lp_hz=None, target_rms_dbfs=-20.0, peak_limit=0.97):
-    """DC removal -> high-pass -> optional low-pass -> RMS normalisation with peak limiting -> fades."""
-    y = np.asarray(y, dtype=np.float64)
-    out = y - y.mean()
-    if hp_hz:
-        b, a = ss.butter(2, hp_hz / (fs / 2), "high"); out = ss.filtfilt(b, a, out)
-    if lp_hz and lp_hz < fs / 2:
-        b, a = ss.butter(4, lp_hz / (fs / 2), "low"); out = ss.filtfilt(b, a, out)
-    f = min(int(0.01 * fs), len(out) // 4)
-    if f > 0:
-        out[:f] *= np.linspace(0, 1, f); out[-f:] *= np.linspace(1, 0, f)
-    gain = 10 ** (target_rms_dbfs / 20) / (np.sqrt(np.mean(out ** 2)) + 1e-12)
-    out = out * gain
-    pk = np.max(np.abs(out)) + 1e-12
-    if pk > peak_limit:
-        out *= peak_limit / pk
-    # gain-matched SNR: measures distortion introduced by *filtering*, not by the level change
-    g = np.dot(y, out) / (np.dot(y, y) + 1e-20)
-    cen = lambda x: float(np.mean(librosa.feature.spectral_centroid(y=x.astype(np.float32), sr=fs, n_fft=512)))
-    metrics = dict(
-        rms_before_dbfs=round(dbfs(y), 2), rms_after_dbfs=round(dbfs(out), 2),
-        peak_before=round(float(np.max(np.abs(y))), 4), peak_after=round(float(np.max(np.abs(out))), 4),
-        dc_offset_before=round(float(y.mean()), 6), applied_gain_db=round(float(20 * np.log10(gain)), 2),
-        snr_vs_input_gain_matched_db=round(snr_db(g * y, out), 2),
-        lsd_vs_input_gain_matched_db=round(lsd_db((g * y).astype(np.float32), out.astype(np.float32)), 3),
-        centroid_before_hz=round(cen(y), 1), centroid_after_hz=round(cen(out), 1),
-        hp_hz=hp_hz, lp_hz=lp_hz, target_rms_dbfs=target_rms_dbfs)
-    return out.astype(np.float32), metrics
+postprocess = GPU.postprocess
 
 
 # ---------------------------------------------------------------- compression experiment
@@ -517,7 +385,7 @@ def _topk_mask(mag, keep):
 def stft_encode(y, keep, mag_bits=6, phase_bits=5, n_fft=512, hop=128):
     """STFT -> keep the largest `keep` fraction of coefficients -> log-magnitude + phase quantisation
     -> bitmap + codes -> zlib. Returns (blob, stats)."""
-    S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
+    S = GPU.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
     mag, ph = np.abs(S), np.angle(S)
     m = _topk_mask(mag, keep)
     mv = mag[m]
@@ -544,13 +412,13 @@ def stft_decode(blob, n_fft=512, hop=128):
     qm = np.frombuffer(raw[nb:nb + nk], np.uint8); qp = np.frombuffer(raw[nb + nk:nb + 2 * nk], np.uint8)
     S = np.zeros((d1, d2), np.complex128)
     S[m] = _dqlog(qm, mb, lo, hi) * np.exp(1j * (-np.pi + (qp + 0.5) * 2 * np.pi / 2 ** pb))
-    return librosa.istft(S, n_fft=n_fft, hop_length=hop, window="hann", length=n).astype(np.float32)
+    return GPU.istft(S, n_fft=n_fft, hop_length=hop, window="hann", length=n).astype(np.float32)
 
 
 def dct_encode(y, keep, mag_bits=7, block=512):
     """Block DCT-II (orthonormal) -> keep largest `keep` fraction -> sign + log-magnitude codes -> zlib."""
     n = len(y); nb = int(np.ceil(n / block))
-    X = sfft.dct(np.pad(y, (0, nb * block - n)).reshape(nb, block).astype(np.float64), type=2, norm="ortho", axis=1)
+    X = GPU.dct(np.pad(y, (0, nb * block - n)).reshape(nb, block).astype(np.float64), type=2, norm="ortho", axis=1)
     mag = np.abs(X); m = _topk_mask(mag, keep); mv = mag[m]
     lo, hi = float(20 * np.log10(max(mv.min(), 1e-9))), float(20 * np.log10(max(mv.max(), 1e-9)))
     qm = _qlog(mv, mag_bits, lo, hi); sg = (X[m] < 0).astype(np.uint8)
@@ -571,7 +439,7 @@ def dct_decode(blob):
     qm = np.frombuffer(raw[nbm:nbm + nk], np.uint8)
     sg = np.unpackbits(np.frombuffer(raw[nbm + nk:], np.uint8))[:nk].astype(bool)
     X = np.zeros((nb, block)); v = _dqlog(qm, mb, lo, hi); v[sg] *= -1; X[m] = v
-    return sfft.idct(X, type=2, norm="ortho", axis=1).ravel()[:n].astype(np.float32)
+    return GPU.idct(X, type=2, norm="ortho", axis=1).ravel()[:n].astype(np.float32)
 
 
 def compression_sweep(y, fs, keeps=(0.05, 0.1, 0.2, 0.3, 0.5), out_dir=None):
@@ -612,7 +480,7 @@ def public_rows(rows):
 
 def plot_spectrum_compare(a, b, fs, path, la="generated", lb="final (post-processed)"):
     with LOCK:
-        f1, p1 = ss.welch(a, fs, nperseg=2048); f2, p2 = ss.welch(b, fs, nperseg=2048)
+        f1, p1 = GPU.welch(a, fs, nperseg=2048); f2, p2 = GPU.welch(b, fs, nperseg=2048)
         fig, ax = plt.subplots(figsize=(8, 3.6))
         ax.plot(f1, 10 * np.log10(p1 + 1e-14), label=la, lw=0.9); ax.plot(f2, 10 * np.log10(p2 + 1e-14), label=lb, lw=0.9)
         ax.set_xlabel("Frequency (Hz)"); ax.set_ylabel("dB"); ax.set_title("Spectrum before / after post-processing"); ax.legend()

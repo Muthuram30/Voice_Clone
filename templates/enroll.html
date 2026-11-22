@@ -24,11 +24,13 @@
     <div class="card-icon" aria-hidden="true">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
     </div>
-    <h2>Step 1 — Read this script aloud</h2>
+    <h2>Step 1 — Speak in your natural voice</h2>
     <span class="badge b-warn" style="margin-left:auto">~{{ cfg.ENROLL_TARGET_S|int }}s</span>
   </div>
 
-  <div class="script" role="document" aria-label="Enrollment script">{{ script }}</div>
+  <p>Read any passage in your native language, using the accent and speaking style you want to preserve.
+  Include varied sentences and natural pauses. The English passage below is optional.</p>
+  <details><summary>Optional English reading passage</summary><div class="script" role="document">{{ script }}</div></details>
 
   <p class="small mut" style="margin-top:.85rem">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="vertical-align:-2px;margin-right:.25rem" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -50,7 +52,7 @@
 
   <!-- Upload -->
   <form method="post" action="{{ url_for('main.upload', slug=p.slug) }}" enctype="multipart/form-data" class="upload-form">
-    <input type="file" name="audio" id="audio-file-input" accept=".wav,.flac,.ogg,audio/*" required>
+    <input type="file" name="audio" id="audio-file-input" accept="audio/*,video/*,.wav,.flac,.ogg,.mp3,.m4a,.aac,.opus,.webm,.mp4,.mov,.mkv,.avi,.aif,.aiff,.wma" required>
     <button type="submit">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       Upload recording
@@ -61,20 +63,25 @@
 
   <!-- Browser record -->
   <div class="rec-controls">
-    <button type="button" id="recStart" class="sec">
+    <button type="button" id="recStart" class="sec" data-max-seconds="{{ cfg.ENROLL_MAX_S }}">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
       Record in browser
     </button>
     <button type="button" id="recStop" class="sec" disabled>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/></svg>
-      Stop &amp; upload
+      Stop &amp; preview
     </button>
     <span id="recInfo" class="mut small" aria-live="polite"></span>
   </div>
 
+  <canvas id="recWave" width="900" height="90" aria-label="Live microphone waveform"></canvas>
+  <label for="recLevel">Microphone input level</label><meter id="recLevel" min="0" max="1" low="0.01" high="0.65" optimum="0.15" value="0"></meter>
+  <audio id="recPreview" controls hidden aria-label="Preview microphone recording"></audio>
+  <div class="row"><button type="button" id="recUpload" hidden>Use this recording</button>
+  <button type="button" id="recDiscard" class="sec" hidden>Discard</button></div>
   <p class="small mut" style="margin-top:.6rem">
     Browser recording requires microphone permission and works on localhost/HTTPS. Audio is converted to 16-bit WAV before upload.
-    Supported formats: WAV, FLAC, OGG.
+    Import WAV, FLAC, OGG, MP3, M4A, AAC, Opus, WebM, AIFF, WMA or audio from MP4/MOV/MKV/AVI (up to 120 MB).
   </p>
 </div>
 

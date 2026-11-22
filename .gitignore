@@ -32,3 +32,29 @@ analysis_output/
 
 # Local archives
 *.zip
+
+# Private audio, additional containers, checkpoints and local runtime
+.venv*/
+local-backups/
+*.bundle
+*.m4a
+*.aac
+*.opus
+*.webm
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.aif
+*.aiff
+*.wma
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.log
+.coverage
+htmlcov/
+.ruff_cache/
+.DS_Store
+Thumbs.db

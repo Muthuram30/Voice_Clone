@@ -49,9 +49,7 @@
     <div>
       <label for="backend-select">Run with</label>
       <select name="backend" id="backend-select" style="width:auto">
-        <option value="python">Python (always available)</option>
-        <option value="matlab" {{ '' if matlab.any else 'disabled' }}>MATLAB only</option>
-        <option value="both"   {{ '' if matlab.any else 'disabled' }}>Both (compare)</option>
+        <option value="python">CUDA signal processing</option>
       </select>
     </div>
     <button type="submit" onclick="this.disabled=true;this.form.submit()">
@@ -61,15 +59,8 @@
   </form>
 
   <p class="small mut" style="margin-top:.85rem">
-    <strong>MATLAB:</strong>
-    {% if matlab.any %}
-      Engine API {{ matlab.engine_api }}, CLI {{ matlab.cli }}.
-    {% else %}
-      Not found; only the Python implementation can run.
-    {% endif %}
-    Both implementations perform: DC removal, high-pass + spectral-subtraction noise reduction,
-    normalisation, pre-emphasis, VAD, voiced/unvoiced/silence, FFT, STFT, MFCC, autocorrelation F0,
-    LPC formants, feature vector. ML stages use Python-processed audio.
+    GPU analysis: filters, noise reduction, VAD, pitch, FFT, STFT, MFCC and LPC formants.
+    Python saves the charts and measurements.
   </p>
 </div>
 
@@ -96,7 +87,7 @@
         {% endif %}
       </svg>
     </div>
-    <h2>{{ 'MATLAB' if b == 'matlab' else 'Python' }} results</h2>
+    <h2>CUDA analysis results</h2>
     {% if r.status == 'ok' %}
     <span class="badge b-ok" style="margin-left:auto">OK</span>
     {% else %}
@@ -131,37 +122,6 @@
   {% endif %}
 </div>
 {% endfor %}
-
-<!-- ── Python vs MATLAB comparison ────────────────────────────── -->
-{% if res.python and res.matlab and res.matlab.status == 'ok' %}
-<div class="card">
-  <div class="card-header">
-    <div class="card-icon" aria-hidden="true">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-    </div>
-    <h2>Python vs MATLAB — same recording</h2>
-  </div>
-  <table>
-    <thead>
-      <tr><th>Statistic</th><th>Python</th><th>MATLAB</th></tr>
-    </thead>
-    <tbody>
-      {% for k, v in res.python.stats.items() %}
-        {% if k in res.matlab.stats and k not in ('runtime_s',) %}
-        <tr>
-          <td>{{ k }}</td>
-          <td style="font-family:var(--mono);font-size:.85rem">{{ v }}</td>
-          <td style="font-family:var(--mono);font-size:.85rem">{{ res.matlab.stats[k] }}</td>
-        </tr>
-        {% endif %}
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="small mut" style="margin-top:.75rem">
-    Small differences are expected (different MFCC filterbank/VAD smoothing details, pitch interpolation).
-  </p>
-</div>
-{% endif %}
 
 {% endif %}
 {% endblock %}
