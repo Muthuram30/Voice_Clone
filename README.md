@@ -1,5 +1,7 @@
 # VoiceLab — speaker-adaptive speech synthesis
 
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white) ![Flask](https://img.shields.io/badge/Flask-325B6B?logo=flask&logoColor=white) ![CUDA](https://img.shields.io/badge/CUDA-527F0B?logo=nvidia&logoColor=white) ![PyTorch](https://img.shields.io/badge/PyTorch-B94133?logo=pytorch&logoColor=white) ![Audio DSP](https://img.shields.io/badge/Audio%20DSP-506274)
+
 A local Flask voice studio with profile-separated enrollment, CUDA signal processing, pretrained speaker-conditioned speech generation, and measured DSP/ML experiments.
 
 ## Run the existing installation
@@ -180,3 +182,7 @@ New regressions cover punctuation preservation, tokenizer limits, continuous ref
 Validation note: one exploratory Windows CUDA process exited with native error `0xc0000008`; the immediate repeat passed all 12 focused checks, and the final full suite passed all 68 applicable tests. The native error was not reproduced or attributed to a specific code defect.
 
 Latest real CUDA checks: conversational and long-sentence samples were generated for both existing profiles, with all eight export options checked for every run. All four final signals had 0% clipped samples and no artifact-screen warnings. Long-sentence outputs were 26.90 s and 18.39 s, used two context-bounded passages, and added only 20 ms / 50 ms where the existing model pause was shorter than the requested boundary pause. Longest internal pauses were 0.74 s / 0.78 s. Both long samples matched their own enrolled profile in speaker verification. These measurements do not certify pronunciation or perceptual naturalness; listen to Full-quality speech in each profile's Results page.
+
+## License
+
+The project source is available under the [MIT License](LICENSE). External models remain subject to their own terms.
